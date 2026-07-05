@@ -1,0 +1,10 @@
+numpy
+matplotlib
+tqdm
+jupyter
+ipykernel
+tensorflow[and-cuda]
+torch
+torchvision
+huggingface_hub
+gpustat
