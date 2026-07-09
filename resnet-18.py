@@ -212,7 +212,7 @@ def exact_match_accuracy(y_true, y_pred):
 
 # # 4. Build the ResNet-18 model
 
-# In[8]:
+# In[ ]:
 
 
 def basic_block(x, filters, stride=1, name=None):
@@ -287,7 +287,7 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
 
     x = layers.GlobalAveragePooling2D(name="avg_pool")(x)
     x = layers.Dense(256, activation="relu", name="fc1")(x)
-    x = layers.Dropout(0.3, name="dropout")(x)
+    x = layers.Dropout(0.5, name="dropout")(x)
     outputs = layers.Dense(10, activation="sigmoid", name="predictions")(x)
 
     return keras.Model(inputs=inputs, outputs=outputs, name="multi_label_resnet18")
@@ -301,7 +301,7 @@ INPUT_SHAPE = (64, 64, 3)
 model = build_resnet18_model(input_shape=INPUT_SHAPE)
 
 
-# In[10]:
+# In[ ]:
 
 
 # Compile the model with appropriate loss and metrics for multi-label classification.
@@ -310,7 +310,7 @@ model.compile(
         learning_rate=0.1,
         momentum=0.9,
         use_ema=True,
-        # weight_decay=1e-5
+        weight_decay=1e-4
     ),
     loss="binary_crossentropy",
     metrics=[
@@ -351,7 +351,7 @@ callbacks = [
         monitor="val_loss",
         mode="min",
         factor=0.5,
-        patience=5,
+        patience=10,
         min_lr=1e-5,
         verbose=1
     ),
