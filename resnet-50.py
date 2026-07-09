@@ -221,7 +221,7 @@ def exact_match_accuracy(y_true, y_pred):
 # # 4. Build the ResNet-50 model
 # 
 
-# In[8]:
+# In[ ]:
 
 
 def build_resnet50_model(input_shape=(64, 64, 3)):
@@ -270,7 +270,7 @@ INPUT_SHAPE = (64, 64, 3)
 model = build_resnet50_model(input_shape=INPUT_SHAPE)
 
 
-# In[10]:
+# In[ ]:
 
 
 # Compile the model with appropriate loss and metrics for multi-label classification.
@@ -280,6 +280,7 @@ model.compile(
         learning_rate=0.1,
         momentum=0.9,
         use_ema=True,
+        # weight_decay=1e-5
     ),
     loss="binary_crossentropy",
     metrics=[
@@ -306,8 +307,8 @@ model.summary()
 
 
 # Training hyperparameters.
-BATCH_SIZE = 64
-EPOCHS = 50
+BATCH_SIZE = 256
+EPOCHS = 200
 
 # # Use callbacks to improve training.
 # callbacks = [
@@ -325,7 +326,7 @@ EPOCHS = 50
 # ]
 
 
-# In[13]:
+# In[ ]:
 
 
 # Train the model.
