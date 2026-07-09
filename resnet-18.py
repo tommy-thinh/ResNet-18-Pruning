@@ -286,7 +286,7 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
     x = basic_block(x, 512, stride=1, name="conv5_block2")
 
     x = layers.GlobalAveragePooling2D(name="avg_pool")(x)
-    x = layers.Dense(256, activation="relu", name="fc1")(x)
+    x = layers.Dense(128, activation="relu", name="fc1")(x)
     x = layers.Dropout(0.5, name="dropout")(x)
     outputs = layers.Dense(10, activation="sigmoid", name="predictions")(x)
 
@@ -310,7 +310,7 @@ model.compile(
         learning_rate=0.1,
         momentum=0.9,
         use_ema=True,
-        weight_decay=1e-4
+        weight_decay=5e-3
     ),
     loss="binary_crossentropy",
     metrics=[
@@ -343,7 +343,7 @@ callbacks = [
     keras.callbacks.EarlyStopping(
         monitor="val_exact_match_accuracy",
         mode="max",
-        patience=15,
+        patience=20,
         restore_best_weights=True,
         verbose=1
     ),
