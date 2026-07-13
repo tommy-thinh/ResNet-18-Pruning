@@ -3,7 +3,7 @@
 
 # # 1. Imports and global settings
 
-# In[1]:
+# In[ ]:
 
 
 import os
@@ -12,7 +12,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 
 
-# In[2]:
+# In[ ]:
 
 
 import os
@@ -30,7 +30,7 @@ from tensorflow.keras import layers
 tf.get_logger().setLevel("ERROR")
 
 
-# In[3]:
+# In[ ]:
 
 
 # Reproducibility seed
@@ -51,7 +51,7 @@ print("Setup complete")
 
 # # 2. Data loading
 
-# In[4]:
+# In[ ]:
 
 
 def load_data_pt(path):
@@ -95,7 +95,7 @@ def load_data_pt(path):
     return images, labels, meta
 
 
-# In[5]:
+# In[ ]:
 
 
 # File paths for train, validation, and test.
@@ -120,7 +120,7 @@ else:
 
 # # 3. Visualization
 
-# In[6]:
+# In[ ]:
 
 
 def multihot_to_digits(multihot):
@@ -188,7 +188,7 @@ if "x_train" in globals():
 
 # # 3. Define exact match accuracy metrics:
 
-# In[7]:
+# In[ ]:
 
 
 def exact_match_accuracy(y_true, y_pred):
@@ -293,7 +293,7 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
     return keras.Model(inputs=inputs, outputs=outputs, name="multi_label_resnet18")
 
 
-# In[9]:
+# In[ ]:
 
 
 # Build the model
@@ -322,7 +322,7 @@ model.compile(
 )
 
 
-# In[11]:
+# In[ ]:
 
 
 # Display the model architecture.
@@ -373,7 +373,7 @@ history = model.fit(
 )
 
 
-# In[14]:
+# In[ ]:
 
 
 # Plot training history if available.
@@ -418,7 +418,7 @@ else:
 # 
 # For this task, precision, recall, and exact-match accuracy are usually more informative than binary accuracy.
 
-# In[15]:
+# In[ ]:
 
 
 # Evaluate the model on the test set.
@@ -444,7 +444,7 @@ results = model.evaluate(x_test, y_test, verbose=1)
 # 
 # If a probability is greater than or equal to the threshold, that digit is predicted as present.
 
-# In[16]:
+# In[ ]:
 
 
 # Prediction helper functions
@@ -455,7 +455,7 @@ def probs_to_digits(probs, threshold=PREDICTION_THRESHOLD):
     return np.where(probs >= threshold)[0].tolist()
 
 
-# In[17]:
+# In[ ]:
 
 
 # Visualize several test predictions.
@@ -486,7 +486,7 @@ else:
     print("Model or test data not available.")
 
 
-# In[18]:
+# In[ ]:
 
 
 # Inspect one test prediction in detail.
@@ -503,7 +503,7 @@ for digit, p in enumerate(prob):
     print(f"digit {digit}: {p:.4f}")
 
 
-# In[19]:
+# In[ ]:
 
 
 # Exit kernel
