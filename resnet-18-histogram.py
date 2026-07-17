@@ -109,6 +109,27 @@ def build_histograms(all_digit_labels):
         histograms.append(hist)
     return np.stack(histograms, axis=0).astype(np.float32)
 
+def build_position_targets(meta_positions, image_size=64):
+    """Normalize digit top-left coordinates and preserve -1 padding."""
+    positions = meta_positions.astype(np.float32)
+    valid = np.all(positions >= 0, axis=-1, keepdims=True)
+    normalized = np.where(valid, positions / image_size, -1.0)
+    return normalized.astype(np.float32)
+
+def masked_position_mse(y_true, y_pred):
+    """MSE over valid digit positions only; padded slots are ignored."""
+    valid = tf.cast(y_true[..., :1] >= 0.0, y_pred.dtype)
+    squared_error = tf.square(y_pred - y_true) * valid
+    denominator = tf.reduce_sum(valid) * 2.0 + tf.keras.backend.epsilon()
+    return tf.reduce_sum(squared_error) / denominator
+
+def masked_position_mae(y_true, y_pred):
+    """MAE over valid digit positions only; padded slots are ignored."""
+    valid = tf.cast(y_true[..., :1] >= 0.0, y_pred.dtype)
+    absolute_error = tf.abs(y_pred - y_true) * valid
+    denominator = tf.reduce_sum(valid) * 2.0 + tf.keras.backend.epsilon()
+    return tf.reduce_sum(absolute_error) / denominator
+
 
 # In[ ]:
 
@@ -127,11 +148,14 @@ if all(os.path.exists(p) for p in [train_path, val_path, test_path]):
     y_train_hist = build_histograms(meta_train["all_digit_labels"] )
     y_val_hist = build_histograms(meta_val["all_digit_labels"] )
     y_test_hist = build_histograms(meta_test["all_digit_labels"] )
+    y_train_positions = build_position_targets(meta_train["all_positions"])
+    y_val_positions = build_position_targets(meta_val["all_positions"])
+    y_test_positions = build_position_targets(meta_test["all_positions"])
 
     print("Data loaded successfully.")
-    print("Train:", x_train.shape, y_train.shape, y_train_hist.shape)
-    print("Val:  ", x_val.shape, y_val.shape, y_val_hist.shape)
-    print("Test: ", x_test.shape, y_test.shape, y_test_hist.shape)
+    print("Train:", x_train.shape, y_train.shape, y_train_hist.shape, y_train_positions.shape)
+    print("Val:  ", x_val.shape, y_val.shape, y_val_hist.shape, y_val_positions.shape)
+    print("Test: ", x_test.shape, y_test.shape, y_test_hist.shape, y_test_positions.shape)
     print("You can now proceed to model training and evaluation.")
 else:
     print("Dataset files not found yet.")
@@ -310,10 +334,12 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
 
     multilabel_output = layers.Dense(10, activation="sigmoid", name="multilabel_output")(x)
     histogram_output = layers.Dense(10, activation="linear", name="histogram_output")(x)
+    position_output = layers.Dense(16, activation="linear", name="position_output_flat")(x)
+    position_output = layers.Reshape((8, 2), name="position_output")(position_output)
 
     return keras.Model(
         inputs=inputs,
-        outputs={"multilabel_output": multilabel_output, "histogram_output": histogram_output},
+        outputs={"multilabel_output": multilabel_output, "histogram_output": histogram_output, "position_output": position_output},
         name="multi_task_resnet18",
     )
 
@@ -340,10 +366,12 @@ model.compile(
     loss={
         "multilabel_output": keras.losses.BinaryCrossentropy(),
         "histogram_output": keras.losses.MeanSquaredError(),
+        "position_output": masked_position_mse,
     },
     loss_weights={
-        "multilabel_output": 0.5,
-        "histogram_output": 0.5,
+        "multilabel_output": 0.4,
+        "histogram_output": 0.4,
+        "position_output": 2.0,
     },
     metrics={
         "multilabel_output": [
@@ -355,6 +383,9 @@ model.compile(
         "histogram_output": [
             keras.metrics.MeanAbsoluteError(name="mae"),
         ],
+        "position_output": [
+            masked_position_mae,
+        ],
     },
 )
 
@@ -363,7 +394,7 @@ model.compile(
 
 
 class MultiTaskTrainingLogger(keras.callbacks.Callback):
-    """Print a compact epoch summary for the two-task training run."""
+    """Print a compact epoch summary for the three-task training run."""
 
     def on_train_begin(self, logs=None):
         self.total_epochs = self.params.get("epochs", 0)
@@ -400,6 +431,10 @@ class MultiTaskTrainingLogger(keras.callbacks.Callback):
         print("Histogram")
         print(f"  Train Loss: {get_value('histogram_output_loss'):.4f} ")
         print(f"  Val Loss: {get_value('val_histogram_output_loss'):.4f} ")
+        print()
+        print("Detection")
+        print(f"  Train Loss: {get_value('position_output_loss'):.4f} ")
+        print(f"  Val Loss: {get_value('val_position_output_loss'):.4f} ")
         print()
         print(f"Learning Rate : {lr:.4f}")
         print()
@@ -451,12 +486,14 @@ history = model.fit(
     {
         "multilabel_output": y_train,
         "histogram_output": y_train_hist,
+        "position_output": y_train_positions,
     },
     validation_data=(
         x_val,
         {
             "multilabel_output": y_val,
             "histogram_output": y_val_hist,
+            "position_output": y_val_positions,
         },
     ),
     epochs=EPOCHS,
@@ -512,6 +549,7 @@ results = model.evaluate(
     {
         "multilabel_output": y_test,
         "histogram_output": y_test_hist,
+        "position_output": y_test_positions,
     },
     verbose=1,
 )
@@ -554,8 +592,8 @@ def probs_to_digits(probs, threshold=PREDICTION_THRESHOLD):
 
 if "model" in globals() and "x_test" in globals():
     indices = np.random.choice(len(x_test), size=12, replace=False)
-    preds = model.predict(x_test[indices], verbose=0)
-    probs = preds["multilabel_output"]
+    predictions = model.predict(x_test[indices], verbose=0)
+    probs = predictions["multilabel_output"]
 
     plt.figure(figsize=(12, 9))
 
@@ -584,8 +622,8 @@ else:
 
 # Inspect one test prediction in detail.
 idx = 0
-preds = model.predict(x_test[idx:idx + 1], verbose=0)
-prob = preds["multilabel_output"][0]
+predictions = model.predict(x_test[idx:idx + 1], verbose=0)
+prob = predictions["multilabel_output"][0]
 
 print("True digits:", multihot_to_digits(y_test[idx]))
 print("Predicted digits:", probs_to_digits(prob))
