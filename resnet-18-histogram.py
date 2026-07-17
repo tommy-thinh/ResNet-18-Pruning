@@ -10,6 +10,7 @@ import os
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
+os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 
 
 # In[ ]:
@@ -24,6 +25,15 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 
 import tensorflow as tf
+
+gpus = tf.config.list_physical_devices("GPU")
+
+for gpu in gpus:
+    tf.config.experimental.set_memory_growth(gpu, True)
+
+print("Available GPUs:", gpus)
+
+
 from tensorflow import keras
 from tensorflow.keras import layers
 
@@ -109,37 +119,31 @@ def build_histograms(all_digit_labels):
         histograms.append(hist)
     return np.stack(histograms, axis=0).astype(np.float32)
 
-def build_position_targets(meta_positions, image_size=64, box_size=28):
-    """Sort top-left boxes, convert them to centers, and normalize them."""
-    positions = meta_positions.astype(np.float32)
-    targets = np.full_like(positions, -1.0, dtype=np.float32)
+def build_gaussian_heatmaps(all_digit_labels, all_positions, image_size=64, box_size=28, sigma=3.0):
+    """Create one 64x64 Gaussian heatmap per digit class."""
+    labels = all_digit_labels.astype(np.int64)
+    positions = all_positions.astype(np.float32)
+    heatmaps = np.zeros((len(labels), image_size, image_size, 10), dtype=np.float32)
+    yy, xx = np.meshgrid(
+        np.arange(image_size, dtype=np.float32),
+        np.arange(image_size, dtype=np.float32),
+        indexing="ij",
+    )
+    denominator = 2.0 * sigma * sigma
     center_offset = box_size / 2.0
 
-    for i, sample_positions in enumerate(positions):
-        valid = np.all(sample_positions >= 0, axis=-1)
-        valid_positions = sample_positions[valid]
+    for i, (sample_labels, sample_positions) in enumerate(zip(labels, positions)):
+        valid = (sample_labels >= 0) & np.all(sample_positions >= 0, axis=-1)
+        for digit, (x, y) in zip(sample_labels[valid], sample_positions[valid]):
+            cx = x + center_offset
+            cy = y + center_offset
+            gaussian = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / denominator)
+            heatmaps[i, :, :, digit] = np.maximum(
+                heatmaps[i, :, :, digit],
+                gaussian,
+            )
 
-        # Lexicographic order: first coordinate, then second coordinate.
-        order = np.lexsort((valid_positions[:, 1], valid_positions[:, 0]))
-        sorted_positions = valid_positions[order] + center_offset
-        targets[i, :len(sorted_positions)] = sorted_positions / image_size
-
-    return targets.astype(np.float32)
-
-def masked_position_mse(y_true, y_pred):
-    """MSE over valid digit positions only; padded slots are ignored."""
-    valid = tf.cast(y_true[..., :1] >= 0.0, y_pred.dtype)
-    squared_error = tf.square(y_pred - y_true) * valid
-    denominator = tf.reduce_sum(valid) * 2.0 + tf.keras.backend.epsilon()
-    # Multiply by 10 to match the scale of other losses
-    return tf.reduce_sum(squared_error) / denominator * 10.0
-
-def masked_position_mae(y_true, y_pred):
-    """MAE over valid digit positions only; padded slots are ignored."""
-    valid = tf.cast(y_true[..., :1] >= 0.0, y_pred.dtype)
-    absolute_error = tf.abs(y_pred - y_true) * valid
-    denominator = tf.reduce_sum(valid) * 2.0 + tf.keras.backend.epsilon()
-    return tf.reduce_sum(absolute_error) / denominator
+    return heatmaps
 
 
 # In[ ]:
@@ -159,14 +163,20 @@ if all(os.path.exists(p) for p in [train_path, val_path, test_path]):
     y_train_hist = build_histograms(meta_train["all_digit_labels"] )
     y_val_hist = build_histograms(meta_val["all_digit_labels"] )
     y_test_hist = build_histograms(meta_test["all_digit_labels"] )
-    y_train_positions = build_position_targets(meta_train["all_positions"])
-    y_val_positions = build_position_targets(meta_val["all_positions"])
-    y_test_positions = build_position_targets(meta_test["all_positions"])
+    y_train_heatmaps = build_gaussian_heatmaps(
+        meta_train["all_digit_labels"], meta_train["all_positions"]
+    )
+    y_val_heatmaps = build_gaussian_heatmaps(
+        meta_val["all_digit_labels"], meta_val["all_positions"]
+    )
+    y_test_heatmaps = build_gaussian_heatmaps(
+        meta_test["all_digit_labels"], meta_test["all_positions"]
+    )
 
     print("Data loaded successfully.")
-    print("Train:", x_train.shape, y_train.shape, y_train_hist.shape, y_train_positions.shape)
-    print("Val:  ", x_val.shape, y_val.shape, y_val_hist.shape, y_val_positions.shape)
-    print("Test: ", x_test.shape, y_test.shape, y_test_hist.shape, y_test_positions.shape)
+    print("Train:", x_train.shape, y_train.shape, y_train_hist.shape, y_train_heatmaps.shape)
+    print("Val:  ", x_val.shape, y_val.shape, y_val_hist.shape, y_val_heatmaps.shape)
+    print("Test: ", x_test.shape, y_test.shape, y_test_hist.shape, y_test_heatmaps.shape)
     print("You can now proceed to model training and evaluation.")
 else:
     print("Dataset files not found yet.")
@@ -362,6 +372,26 @@ def basic_block(x, filters, stride=1, name=None):
     return y
 
 
+def decoder_block(x, filters, name, upsample=True):
+    """Upsample and refine a heatmap decoder feature map."""
+    if upsample:
+        x = layers.UpSampling2D(
+            size=2,
+            interpolation="bilinear",
+            name=f"{name}_upsample",
+        )(x)
+
+    x = layers.Conv2D(
+        filters,
+        kernel_size=3,
+        padding="same",
+        use_bias=False,
+        name=f"{name}_conv",
+    )(x)
+    x = layers.BatchNormalization(name=f"{name}_bn")(x)
+    return layers.ReLU(name=f"{name}_relu")(x)
+
+
 def build_resnet18_model(input_shape=(64, 64, 3)):
     """Build a ResNet-18 from scratch for multi-task learning."""
     inputs = keras.Input(shape=input_shape)
@@ -388,21 +418,31 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
     x = basic_block(x, 256, stride=2, name="conv4_block1")
     x = basic_block(x, 256, stride=1, name="conv4_block2")
 
+    # Branch at 4x4 for better spatial localization.
+    heatmap_features = x
+
     x = basic_block(x, 512, stride=2, name="conv5_block1")
     x = basic_block(x, 512, stride=1, name="conv5_block2")
 
+    # Existing pooled representation for the multilabel and histogram heads.
     x = layers.GlobalAveragePooling2D(name="avg_pool")(x)
     x = layers.Dense(512, activation="relu", name="fc1")(x)
     x = layers.Dropout(0.5, name="dropout")(x)
 
     multilabel_output = layers.Dense(10, activation="sigmoid", name="multilabel_output")(x)
     histogram_output = layers.Dense(10, activation="linear", name="histogram_output")(x)
-    position_output = layers.Dense(16, activation="linear", name="position_output_flat")(x)
-    position_output = layers.Reshape((8, 2), name="position_output")(position_output)
+
+    # Decode the 4x4 feature map to 64x64 with progressively smaller channels.
+    heatmap = decoder_block(heatmap_features, 256, name="heatmap_dec_256")
+    heatmap = decoder_block(heatmap, 128, name="heatmap_dec_128")
+    heatmap = decoder_block(heatmap, 64, name="heatmap_dec_64")
+    heatmap = decoder_block(heatmap, 32, name="heatmap_dec_32")
+    heatmap = decoder_block(heatmap, 16, name="heatmap_refine_16", upsample=False)
+    heatmap_output = layers.Conv2D(10, 1, padding="same", activation="sigmoid", name="heatmap_output")(heatmap)
 
     return keras.Model(
         inputs=inputs,
-        outputs={"multilabel_output": multilabel_output, "histogram_output": histogram_output, "position_output": position_output},
+        outputs={"multilabel_output": multilabel_output, "histogram_output": histogram_output, "heatmap_output": heatmap_output},
         name="multi_task_resnet18",
     )
 
@@ -429,12 +469,12 @@ model.compile(
     loss={
         "multilabel_output": keras.losses.BinaryCrossentropy(),
         "histogram_output": keras.losses.MeanSquaredError(),
-        "position_output": masked_position_mse,
+        "heatmap_output": keras.losses.MeanSquaredError(),
     },
     loss_weights={
-        "multilabel_output": 0.5,
-        "histogram_output": 0.5,
-        "position_output": 0.1,
+        "multilabel_output": 0.33,
+        "histogram_output": 0.33,
+        "heatmap_output": 0.33 * 10, # Multiplying by 10 to match the scale of other losses
     },
     metrics={
         "multilabel_output": [
@@ -446,8 +486,8 @@ model.compile(
         "histogram_output": [
             keras.metrics.MeanAbsoluteError(name="mae"),
         ],
-        "position_output": [
-            masked_position_mae,
+        "heatmap_output": [
+            keras.metrics.MeanSquaredError(name="mse"),
         ],
     },
 )
@@ -495,9 +535,9 @@ class MultiTaskTrainingLogger(keras.callbacks.Callback):
         print(f"  Train Loss: {get_value('histogram_output_loss'):.4f} ")
         print(f"  Val Loss: {get_value('val_histogram_output_loss'):.4f} ")
         print()
-        print("Detection")
-        print(f"  Train Loss: {get_value('position_output_loss'):.4f} ")
-        print(f"  Val Loss: {get_value('val_position_output_loss'):.4f} ")
+        print("Heatmap")
+        print(f"  Train Loss: {get_value('heatmap_output_loss'):.4f} ")
+        print(f"  Val Loss: {get_value('val_heatmap_output_loss'):.4f} ")
         print()
         print(f"Learning Rate : {lr:.4f}")
         print()
@@ -549,14 +589,14 @@ history = model.fit(
     {
         "multilabel_output": y_train,
         "histogram_output": y_train_hist,
-        "position_output": y_train_positions,
+        "heatmap_output": y_train_heatmaps,
     },
     validation_data=(
         x_val,
         {
             "multilabel_output": y_val,
             "histogram_output": y_val_hist,
-            "position_output": y_val_positions,
+            "heatmap_output": y_val_heatmaps,
         },
     ),
     epochs=EPOCHS,
@@ -612,7 +652,7 @@ results = model.evaluate(
     {
         "multilabel_output": y_test,
         "histogram_output": y_test_hist,
-        "position_output": y_test_positions,
+        "heatmap_output": y_test_heatmaps,
     },
     verbose=1,
 )
@@ -646,6 +686,20 @@ PREDICTION_THRESHOLD=0.5
 def probs_to_digits(probs, threshold=PREDICTION_THRESHOLD):
     """Convert prediction probabilities into a list of predicted digits."""
     return np.where(probs >= threshold)[0].tolist()
+
+def heatmaps_to_keypoints(heatmaps):
+    """Recover one (x, y) argmax keypoint and score per digit channel."""
+    heatmaps = np.asarray(heatmaps)
+    if heatmaps.ndim == 3:
+        heatmaps = heatmaps[None, ...]
+
+    batch_size, height, width, num_classes = heatmaps.shape
+    flat = heatmaps.reshape(batch_size, height * width, num_classes)
+    flat_indices = np.argmax(flat, axis=1)
+    scores = np.take_along_axis(flat, flat_indices[:, None, :], axis=1)[:, 0, :]
+    ys, xs = np.divmod(flat_indices, width)
+    keypoints = np.stack([xs, ys], axis=-1)
+    return keypoints, scores
 
 
 # In[ ]:
@@ -696,6 +750,22 @@ print()
 print("Prediction probabilities:")
 for digit, p in enumerate(prob):
     print(f"digit {digit}: {p:.4f}")
+
+heatmaps = predictions["heatmap_output"]
+predicted_keypoints, keypoint_scores = heatmaps_to_keypoints(heatmaps)
+print("Predicted heatmap keypoints:", predicted_keypoints[0])
+print("Keypoint scores:", np.round(keypoint_scores[0], 4))
+
+fig, axes = plt.subplots(2, 10, figsize=(20, 4))
+for digit in range(10):
+    axes[0, digit].imshow(y_test_heatmaps[idx, :, :, digit], cmap="hot", vmin=0, vmax=1)
+    axes[0, digit].set_title(f"True {digit}")
+    axes[1, digit].imshow(heatmaps[0, :, :, digit], cmap="hot", vmin=0, vmax=1)
+    axes[1, digit].set_title(f"Pred {digit}")
+    axes[0, digit].axis("off")
+    axes[1, digit].axis("off")
+plt.tight_layout()
+plt.show()
 
 
 # In[ ]:
