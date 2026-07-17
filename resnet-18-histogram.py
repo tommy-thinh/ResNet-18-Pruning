@@ -109,19 +109,30 @@ def build_histograms(all_digit_labels):
         histograms.append(hist)
     return np.stack(histograms, axis=0).astype(np.float32)
 
-def build_position_targets(meta_positions, image_size=64):
-    """Normalize digit top-left coordinates and preserve -1 padding."""
+def build_position_targets(meta_positions, image_size=64, box_size=28):
+    """Sort top-left boxes, convert them to centers, and normalize them."""
     positions = meta_positions.astype(np.float32)
-    valid = np.all(positions >= 0, axis=-1, keepdims=True)
-    normalized = np.where(valid, positions / image_size, -1.0)
-    return normalized.astype(np.float32)
+    targets = np.full_like(positions, -1.0, dtype=np.float32)
+    center_offset = box_size / 2.0
+
+    for i, sample_positions in enumerate(positions):
+        valid = np.all(sample_positions >= 0, axis=-1)
+        valid_positions = sample_positions[valid]
+
+        # Lexicographic order: first coordinate, then second coordinate.
+        order = np.lexsort((valid_positions[:, 1], valid_positions[:, 0]))
+        sorted_positions = valid_positions[order] + center_offset
+        targets[i, :len(sorted_positions)] = sorted_positions / image_size
+
+    return targets.astype(np.float32)
 
 def masked_position_mse(y_true, y_pred):
     """MSE over valid digit positions only; padded slots are ignored."""
     valid = tf.cast(y_true[..., :1] >= 0.0, y_pred.dtype)
     squared_error = tf.square(y_pred - y_true) * valid
     denominator = tf.reduce_sum(valid) * 2.0 + tf.keras.backend.epsilon()
-    return tf.reduce_sum(squared_error) / denominator
+    # Multiply by 10 to match the scale of other losses
+    return tf.reduce_sum(squared_error) / denominator * 10.0
 
 def masked_position_mae(y_true, y_pred):
     """MAE over valid digit positions only; padded slots are ignored."""
@@ -178,50 +189,102 @@ def multihot_to_digits(multihot):
     return np.where(multihot >= 0.5)[0].tolist()
 
 
+from matplotlib.patches import Rectangle
+
 def visualize_one_sample(images, labels, meta, idx=0):
-    """Visualize one generated image and its labels."""
+    """Visualize one sample using digit center coordinates."""
+
     img = images[idx].squeeze()
 
     digits_present = multihot_to_digits(labels[idx])
     center_label = meta["center_labels"][idx]
     all_labels = meta["all_digit_labels"][idx]
+    all_positions = meta["all_positions"][idx]
     n_digits = meta["num_digits"][idx]
 
-    # Remove padding values.
-    valid_all_labels = all_labels[all_labels >= 0].tolist()
+    valid = all_labels >= 0
+    labels = all_labels[valid]
+    positions = all_positions[valid]
 
-    plt.figure(figsize=(4, 4))
-    plt.imshow(img, cmap="gray")
-    plt.title(
+    fig, ax = plt.subplots(figsize=(6, 6))
+    ax.imshow(img, cmap="gray")
+
+    for (x, y), digit in zip(positions, labels):
+
+        # Original 28x28 bounding box
+        ax.add_patch(
+            Rectangle(
+                (x, y),
+                28,
+                28,
+                fill=False,
+                edgecolor="red",
+                linewidth=2,
+            )
+        )
+
+        # Center of the box
+        cx = x + 14
+        cy = y + 14
+
+        ax.scatter(
+            cx,
+            cy,
+            c="lime",
+            s=80,
+            marker="x",
+        )
+
+        ax.text(
+            cx + 1,
+            cy + 1,
+            str(digit),
+            color="yellow",
+            fontsize=10,
+            fontweight="bold",
+        )
+
+    ax.set_title(
         f"multi-label={digits_present}\n"
-        f"center={center_label}, all={valid_all_labels}, n={n_digits}"
+        f"center_label={center_label}, num_digits={n_digits}"
     )
-    plt.axis("off")
-    plt.show()
 
-
-def visualize_grid(images, labels, meta, num_samples=16):
-    """Visualize a grid of random samples."""
-    rows = int(np.sqrt(num_samples))
-    cols = int(np.ceil(num_samples / rows))
-
-    plt.figure(figsize=(10, 10))
-
-    for i in range(num_samples):
-        idx = random.randint(0, len(images) - 1)
-
-        img = images[idx].squeeze()
-        digits_present = multihot_to_digits(labels[idx])
-        center_label = meta["center_labels"][idx]
-
-        plt.subplot(rows, cols, i + 1)
-        plt.imshow(img, cmap="gray")
-        plt.title(f"y={digits_present}\nc={center_label}", fontsize=8)
-        plt.axis("off")
-
+    ax.axis("off")
     plt.tight_layout()
     plt.show()
 
+def visualize_grid(images, labels, meta, num_samples=16):
+    rows = int(np.sqrt(num_samples))
+    cols = int(np.ceil(num_samples / rows))
+
+    plt.figure(figsize=(12, 12))
+
+    for i in range(num_samples):
+
+        idx = random.randint(0, len(images) - 1)
+
+        img = images[idx].squeeze()
+        all_labels = meta["all_digit_labels"][idx]
+        all_positions = meta["all_positions"][idx]
+
+        valid = all_labels >= 0
+        labels_i = all_labels[valid]
+        positions = all_positions[valid]
+
+        ax = plt.subplot(rows, cols, i + 1)
+        ax.imshow(img, cmap="gray")
+
+        for (x, y), digit in zip(positions, labels_i):
+
+            cx = x + 14
+            cy = y + 14
+
+            ax.scatter(cx, cy, c="lime", s=20, marker="x")
+
+        ax.axis("off")
+
+    plt.tight_layout()
+    plt.show()
 
 # Visualize samples if the dataset has been loaded.
 if "x_train" in globals():
@@ -369,9 +432,9 @@ model.compile(
         "position_output": masked_position_mse,
     },
     loss_weights={
-        "multilabel_output": 0.4,
-        "histogram_output": 0.4,
-        "position_output": 2.0,
+        "multilabel_output": 0.5,
+        "histogram_output": 0.5,
+        "position_output": 0.1,
     },
     metrics={
         "multilabel_output": [
