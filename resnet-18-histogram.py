@@ -3,7 +3,7 @@
 
 # # 1. Imports and global settings
 
-# In[ ]:
+# In[1]:
 
 
 import os
@@ -11,9 +11,10 @@ import os
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
-# In[ ]:
+# In[2]:
 
 
 import os
@@ -40,7 +41,7 @@ from tensorflow.keras import layers
 tf.get_logger().setLevel("ERROR")
 
 
-# In[ ]:
+# In[3]:
 
 
 # Reproducibility seed
@@ -61,7 +62,7 @@ print("Setup complete")
 
 # # 2. Data loading
 
-# In[ ]:
+# In[4]:
 
 
 def load_data_pt(path):
@@ -105,7 +106,7 @@ def load_data_pt(path):
     return images, labels, meta
 
 
-# In[ ]:
+# In[5]:
 
 
 def build_histograms(all_digit_labels):
@@ -119,34 +120,36 @@ def build_histograms(all_digit_labels):
         histograms.append(hist)
     return np.stack(histograms, axis=0).astype(np.float32)
 
-def build_gaussian_heatmaps(all_digit_labels, all_positions, image_size=64, box_size=28, sigma=3.0):
-    """Create one 64x64 Gaussian heatmap per digit class."""
-    labels = all_digit_labels.astype(np.int64)
-    positions = all_positions.astype(np.float32)
-    heatmaps = np.zeros((len(labels), image_size, image_size, 10), dtype=np.float32)
-    yy, xx = np.meshgrid(
-        np.arange(image_size, dtype=np.float32),
-        np.arange(image_size, dtype=np.float32),
-        indexing="ij",
-    )
-    denominator = 2.0 * sigma * sigma
-    center_offset = box_size / 2.0
+def generate_mosaic(images32, labels, histograms, rng):
+    """Generate one fixed 2x2 mosaic from four distinct source images."""
+    indices = rng.choice(len(images32), size=4, replace=False)
+    selected_images = images32[indices]
 
-    for i, (sample_labels, sample_positions) in enumerate(zip(labels, positions)):
-        valid = (sample_labels >= 0) & np.all(sample_positions >= 0, axis=-1)
-        for digit, (x, y) in zip(sample_labels[valid], sample_positions[valid]):
-            cx = x + center_offset
-            cy = y + center_offset
-            gaussian = np.exp(-((xx - cx) ** 2 + (yy - cy) ** 2) / denominator)
-            heatmaps[i, :, :, digit] = np.maximum(
-                heatmaps[i, :, :, digit],
-                gaussian,
-            )
+    mosaic_image = np.zeros((64, 64, 3), dtype=np.float32)
+    placements = ((0, 0), (0, 32), (32, 0), (32, 32))
 
-    return heatmaps
+    for image, (top, left) in zip(selected_images, placements):
+        mosaic_image[top:top + 32, left:left + 32] = image
+
+    mosaic_label = np.max(labels[indices], axis=0).astype(np.float32)
+    mosaic_histogram = np.sum(histograms[indices], axis=0).astype(np.float32)
+    return mosaic_image, mosaic_label, mosaic_histogram
+
+def generate_mosaic_dataset(images32, labels, histograms, num_mosaics, rng):
+    """Generate fresh mosaics; nothing is cached between epochs."""
+    mosaic_images = np.empty((num_mosaics, 64, 64, 3), dtype=np.float32)
+    mosaic_labels = np.empty((num_mosaics, 10), dtype=np.float32)
+    mosaic_histograms = np.empty((num_mosaics, 10), dtype=np.float32)
+
+    for i in range(num_mosaics):
+        mosaic_images[i], mosaic_labels[i], mosaic_histograms[i] = generate_mosaic(
+            images32, labels, histograms, rng
+        )
+
+    return mosaic_images, mosaic_labels, mosaic_histograms
 
 
-# In[ ]:
+# In[12]:
 
 
 # File paths for train, validation, and test.
@@ -157,26 +160,27 @@ test_path = os.path.join("./data/test.pt")
 # Load files if they exist.
 if all(os.path.exists(p) for p in [train_path, val_path, test_path]):
     x_train, y_train, meta_train = load_data_pt(train_path)
+    print("Precomputing 32x32 images...")
+
+    x_train_32 = tf.image.resize(
+        x_train,
+        (32, 32),
+        method="area"
+    ).numpy()
+
+    print("Done.")
+
     x_val, y_val, meta_val = load_data_pt(val_path)
     x_test, y_test, meta_test = load_data_pt(test_path)
 
     y_train_hist = build_histograms(meta_train["all_digit_labels"] )
     y_val_hist = build_histograms(meta_val["all_digit_labels"] )
     y_test_hist = build_histograms(meta_test["all_digit_labels"] )
-    y_train_heatmaps = build_gaussian_heatmaps(
-        meta_train["all_digit_labels"], meta_train["all_positions"]
-    )
-    y_val_heatmaps = build_gaussian_heatmaps(
-        meta_val["all_digit_labels"], meta_val["all_positions"]
-    )
-    y_test_heatmaps = build_gaussian_heatmaps(
-        meta_test["all_digit_labels"], meta_test["all_positions"]
-    )
 
     print("Data loaded successfully.")
-    print("Train:", x_train.shape, y_train.shape, y_train_hist.shape, y_train_heatmaps.shape)
-    print("Val:  ", x_val.shape, y_val.shape, y_val_hist.shape, y_val_heatmaps.shape)
-    print("Test: ", x_test.shape, y_test.shape, y_test_hist.shape, y_test_heatmaps.shape)
+    print("Train:", x_train.shape, y_train.shape, y_train_hist.shape)
+    print("Val:  ", x_val.shape, y_val.shape, y_val_hist.shape)
+    print("Test: ", x_test.shape, y_test.shape, y_test_hist.shape)
     print("You can now proceed to model training and evaluation.")
 else:
     print("Dataset files not found yet.")
@@ -184,7 +188,7 @@ else:
 
 # # 3. Visualization
 
-# In[ ]:
+# In[13]:
 
 
 def multihot_to_digits(multihot):
@@ -199,112 +203,79 @@ def multihot_to_digits(multihot):
     return np.where(multihot >= 0.5)[0].tolist()
 
 
-from matplotlib.patches import Rectangle
-
 def visualize_one_sample(images, labels, meta, idx=0):
-    """Visualize one sample using digit center coordinates."""
-
+    """Visualize one generated image and its labels."""
     img = images[idx].squeeze()
 
     digits_present = multihot_to_digits(labels[idx])
     center_label = meta["center_labels"][idx]
     all_labels = meta["all_digit_labels"][idx]
-    all_positions = meta["all_positions"][idx]
     n_digits = meta["num_digits"][idx]
 
-    valid = all_labels >= 0
-    labels = all_labels[valid]
-    positions = all_positions[valid]
+    # Remove padding values.
+    valid_all_labels = all_labels[all_labels >= 0].tolist()
 
-    fig, ax = plt.subplots(figsize=(6, 6))
-    ax.imshow(img, cmap="gray")
-
-    for (x, y), digit in zip(positions, labels):
-
-        # Original 28x28 bounding box
-        ax.add_patch(
-            Rectangle(
-                (x, y),
-                28,
-                28,
-                fill=False,
-                edgecolor="red",
-                linewidth=2,
-            )
-        )
-
-        # Center of the box
-        cx = x + 14
-        cy = y + 14
-
-        ax.scatter(
-            cx,
-            cy,
-            c="lime",
-            s=80,
-            marker="x",
-        )
-
-        ax.text(
-            cx + 1,
-            cy + 1,
-            str(digit),
-            color="yellow",
-            fontsize=10,
-            fontweight="bold",
-        )
-
-    ax.set_title(
+    plt.figure(figsize=(4, 4))
+    plt.imshow(img, cmap="gray")
+    plt.title(
         f"multi-label={digits_present}\n"
-        f"center_label={center_label}, num_digits={n_digits}"
+        f"center={center_label}, all={valid_all_labels}, n={n_digits}"
     )
-
-    ax.axis("off")
-    plt.tight_layout()
+    plt.axis("off")
     plt.show()
 
+
 def visualize_grid(images, labels, meta, num_samples=16):
+    """Visualize a grid of random samples."""
     rows = int(np.sqrt(num_samples))
     cols = int(np.ceil(num_samples / rows))
 
-    plt.figure(figsize=(12, 12))
+    plt.figure(figsize=(6, 6))
 
     for i in range(num_samples):
-
         idx = random.randint(0, len(images) - 1)
 
         img = images[idx].squeeze()
-        all_labels = meta["all_digit_labels"][idx]
-        all_positions = meta["all_positions"][idx]
+        digits_present = multihot_to_digits(labels[idx])
+        center_label = meta["center_labels"][idx]
 
-        valid = all_labels >= 0
-        labels_i = all_labels[valid]
-        positions = all_positions[valid]
+        plt.subplot(rows, cols, i + 1)
+        plt.imshow(img, cmap="gray")
+        plt.title(f"y={digits_present}\nc={center_label}", fontsize=8)
+        plt.axis("off")
 
-        ax = plt.subplot(rows, cols, i + 1)
-        ax.imshow(img, cmap="gray")
+    plt.tight_layout()
+    plt.show()
 
-        for (x, y), digit in zip(positions, labels_i):
 
-            cx = x + 14
-            cy = y + 14
+def visualize_mosaic_samples(images32, labels, histograms, num_samples=4, seed=SEED):
+    """Display generated mosaics with multilabel and histogram targets."""
+    rng = np.random.default_rng(seed)
+    mosaic_images, mosaic_labels, mosaic_histograms = generate_mosaic_dataset(
+        images32, labels, histograms, num_samples, rng
+    )
 
-            ax.scatter(cx, cy, c="lime", s=20, marker="x")
-
+    fig, axes = plt.subplots(1, num_samples, figsize=(4 * num_samples, 4))
+    axes = np.atleast_1d(axes)
+    for i, ax in enumerate(axes):
+        ax.imshow(mosaic_images[i].squeeze(), cmap="gray")
+        digits = np.where(mosaic_labels[i] >= 0.5)[0].tolist()
+        counts = {d: int(c) for d, c in enumerate(mosaic_histograms[i]) if c > 0}
+        ax.set_title(f"labels={digits}\ncounts={counts}", fontsize=9)
         ax.axis("off")
-
     plt.tight_layout()
     plt.show()
 
 # Visualize samples if the dataset has been loaded.
 if "x_train" in globals():
     visualize_one_sample(x_train, y_train, meta_train, idx=0)
-    visualize_grid(x_train, y_train, meta_train, num_samples=16)
+    visualize_grid(x_train, y_train, meta_train, num_samples=4)
+    visualize_mosaic_samples(x_train_32, y_train, y_train_hist)
 
 
 # # 3. Define exact match accuracy metrics:
 
-# In[ ]:
+# In[8]:
 
 
 def exact_match_accuracy(y_true, y_pred):
@@ -328,7 +299,7 @@ def exact_match_accuracy(y_true, y_pred):
 
 # # 4. Build the ResNet-18 model
 
-# In[ ]:
+# In[9]:
 
 
 def basic_block(x, filters, stride=1, name=None):
@@ -372,26 +343,6 @@ def basic_block(x, filters, stride=1, name=None):
     return y
 
 
-def decoder_block(x, filters, name, upsample=True):
-    """Upsample and refine a heatmap decoder feature map."""
-    if upsample:
-        x = layers.UpSampling2D(
-            size=2,
-            interpolation="bilinear",
-            name=f"{name}_upsample",
-        )(x)
-
-    x = layers.Conv2D(
-        filters,
-        kernel_size=3,
-        padding="same",
-        use_bias=False,
-        name=f"{name}_conv",
-    )(x)
-    x = layers.BatchNormalization(name=f"{name}_bn")(x)
-    return layers.ReLU(name=f"{name}_relu")(x)
-
-
 def build_resnet18_model(input_shape=(64, 64, 3)):
     """Build a ResNet-18 from scratch for multi-task learning."""
     inputs = keras.Input(shape=input_shape)
@@ -418,13 +369,9 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
     x = basic_block(x, 256, stride=2, name="conv4_block1")
     x = basic_block(x, 256, stride=1, name="conv4_block2")
 
-    # Branch at 4x4 for better spatial localization.
-    heatmap_features = x
-
     x = basic_block(x, 512, stride=2, name="conv5_block1")
     x = basic_block(x, 512, stride=1, name="conv5_block2")
 
-    # Existing pooled representation for the multilabel and histogram heads.
     x = layers.GlobalAveragePooling2D(name="avg_pool")(x)
     x = layers.Dense(512, activation="relu", name="fc1")(x)
     x = layers.Dropout(0.5, name="dropout")(x)
@@ -432,22 +379,14 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
     multilabel_output = layers.Dense(10, activation="sigmoid", name="multilabel_output")(x)
     histogram_output = layers.Dense(10, activation="linear", name="histogram_output")(x)
 
-    # Decode the 4x4 feature map to 64x64 with progressively smaller channels.
-    heatmap = decoder_block(heatmap_features, 256, name="heatmap_dec_256")
-    heatmap = decoder_block(heatmap, 128, name="heatmap_dec_128")
-    heatmap = decoder_block(heatmap, 64, name="heatmap_dec_64")
-    heatmap = decoder_block(heatmap, 32, name="heatmap_dec_32")
-    heatmap = decoder_block(heatmap, 16, name="heatmap_refine_16", upsample=False)
-    heatmap_output = layers.Conv2D(10, 1, padding="same", activation="sigmoid", name="heatmap_output")(heatmap)
-
     return keras.Model(
         inputs=inputs,
-        outputs={"multilabel_output": multilabel_output, "histogram_output": histogram_output, "heatmap_output": heatmap_output},
+        outputs={"multilabel_output": multilabel_output, "histogram_output": histogram_output},
         name="multi_task_resnet18",
     )
 
 
-# In[ ]:
+# In[10]:
 
 
 # Build the model
@@ -461,20 +400,18 @@ model = build_resnet18_model(input_shape=INPUT_SHAPE)
 # Compile the model with separate losses and metrics for each output.
 model.compile(
     optimizer=keras.optimizers.SGD(
-        learning_rate=0.1,
+        learning_rate=0.05,
         momentum=0.9,
         use_ema=True,
-        weight_decay=5e-3
+        weight_decay=3e-2
     ),
     loss={
         "multilabel_output": keras.losses.BinaryCrossentropy(),
         "histogram_output": keras.losses.MeanSquaredError(),
-        "heatmap_output": keras.losses.MeanSquaredError(),
     },
     loss_weights={
-        "multilabel_output": 0.33,
-        "histogram_output": 0.33,
-        "heatmap_output": 0.33 * 10, # Multiplying by 10 to match the scale of other losses
+        "multilabel_output": 0.5,
+        "histogram_output": 0.5,
     },
     metrics={
         "multilabel_output": [
@@ -486,18 +423,15 @@ model.compile(
         "histogram_output": [
             keras.metrics.MeanAbsoluteError(name="mae"),
         ],
-        "heatmap_output": [
-            keras.metrics.MeanSquaredError(name="mse"),
-        ],
     },
 )
 
 
-# In[ ]:
+# In[12]:
 
 
 class MultiTaskTrainingLogger(keras.callbacks.Callback):
-    """Print a compact epoch summary for the three-task training run."""
+    """Print a compact epoch summary for the two-task training run."""
 
     def on_train_begin(self, logs=None):
         self.total_epochs = self.params.get("epochs", 0)
@@ -535,15 +469,11 @@ class MultiTaskTrainingLogger(keras.callbacks.Callback):
         print(f"  Train Loss: {get_value('histogram_output_loss'):.4f} ")
         print(f"  Val Loss: {get_value('val_histogram_output_loss'):.4f} ")
         print()
-        print("Heatmap")
-        print(f"  Train Loss: {get_value('heatmap_output_loss'):.4f} ")
-        print(f"  Val Loss: {get_value('val_heatmap_output_loss'):.4f} ")
-        print()
         print(f"Learning Rate : {lr:.4f}")
         print()
 
 
-# In[ ]:
+# In[13]:
 
 
 # Display the model architecture.
@@ -556,11 +486,82 @@ model.summary()
 
 
 # Training hyperparameters.
-BATCH_SIZE = 256
+BATCH_SIZE = 64
 EPOCHS = 200
+
+CLOSE_MOSAIC_EPOCH = 0
+MOSAIC_RATIO = 0.1
+
+class DynamicMosaicSequence(keras.utils.Sequence):
+    """Serve originals plus fresh mosaics during early epochs."""
+    def __init__(self, images,images32, labels, histograms, batch_size, close_epoch, mosaic_ratio, seed=SEED):
+        super().__init__()
+        self.images = images
+        self.images32 = images32
+        self.labels = labels
+        self.histograms = histograms
+        self.batch_size = batch_size
+        self.close_epoch = close_epoch
+        self.num_mosaics = max(1, int(len(images) * mosaic_ratio))
+        self.rng = np.random.default_rng(seed)
+        self.max_samples = len(images) + self.num_mosaics
+        self.current_images = images
+        self.current_labels = labels
+        self.current_histograms = histograms
+        self.use_mosaic = False
+        self.current_epoch = None
+
+    def set_epoch(self, epoch):
+        if self.current_epoch == epoch:
+            return
+        self.use_mosaic = epoch < self.close_epoch
+        if self.use_mosaic:
+            print(f"Generating {self.num_mosaics} mosaics for epoch {epoch + 1}")
+            mosaic_images, mosaic_labels, mosaic_histograms = generate_mosaic_dataset(
+                self.images32, self.labels, self.histograms, self.num_mosaics, self.rng
+            )
+            self.current_images = np.concatenate([self.images, mosaic_images], axis=0)
+            self.current_labels = np.concatenate([self.labels, mosaic_labels], axis=0)
+            self.current_histograms = np.concatenate([self.histograms, mosaic_histograms], axis=0)
+
+            perm = self.rng.permutation(len(self.current_images))
+            self.current_images = self.current_images[perm]
+            self.current_labels = self.current_labels[perm]
+            self.current_histograms = self.current_histograms[perm]
+        else:
+            self.current_images = self.images
+            self.current_labels = self.labels
+            self.current_histograms = self.histograms
+        self.current_epoch = epoch
+
+    def __len__(self):
+        return int(np.ceil(len(self.current_images) / self.batch_size))
+
+    def __getitem__(self, batch_index):
+        start = batch_index * self.batch_size
+        end = min(start + self.batch_size, len(self.current_images))
+        indices = np.arange(start, end)
+        return self.current_images[indices], {
+            "multilabel_output": self.current_labels[indices],
+            "histogram_output": self.current_histograms[indices],
+        }
+
+class MosaicEpochScheduler(keras.callbacks.Callback):
+    def __init__(self, sequence):
+        super().__init__()
+        self.sequence = sequence
+
+    def on_epoch_begin(self, epoch, logs=None):
+        self.sequence.set_epoch(epoch)
+
+train_sequence = DynamicMosaicSequence(
+    x_train, x_train_32, y_train, y_train_hist, BATCH_SIZE,
+    CLOSE_MOSAIC_EPOCH, MOSAIC_RATIO,
+)
 
 # Use callbacks to improve training.
 callbacks = [
+    MosaicEpochScheduler(train_sequence),
     MultiTaskTrainingLogger(),
     keras.callbacks.EarlyStopping(
         monitor="val_multilabel_output_exact_match_accuracy",
@@ -572,7 +573,7 @@ callbacks = [
     keras.callbacks.ReduceLROnPlateau(
         monitor="val_loss",
         mode="min",
-        factor=0.5,
+        factor=0.25,
         patience=10,
         min_lr=1e-5,
         verbose=1
@@ -585,22 +586,15 @@ callbacks = [
 
 # Train the model.
 history = model.fit(
-    x_train,
-    {
-        "multilabel_output": y_train,
-        "histogram_output": y_train_hist,
-        "heatmap_output": y_train_heatmaps,
-    },
+    train_sequence,
     validation_data=(
         x_val,
         {
             "multilabel_output": y_val,
             "histogram_output": y_val_hist,
-            "heatmap_output": y_val_heatmaps,
         },
     ),
     epochs=EPOCHS,
-    batch_size=BATCH_SIZE,
     callbacks=callbacks,
     verbose=0,
 )
@@ -652,7 +646,6 @@ results = model.evaluate(
     {
         "multilabel_output": y_test,
         "histogram_output": y_test_hist,
-        "heatmap_output": y_test_heatmaps,
     },
     verbose=1,
 )
@@ -687,20 +680,6 @@ def probs_to_digits(probs, threshold=PREDICTION_THRESHOLD):
     """Convert prediction probabilities into a list of predicted digits."""
     return np.where(probs >= threshold)[0].tolist()
 
-def heatmaps_to_keypoints(heatmaps):
-    """Recover one (x, y) argmax keypoint and score per digit channel."""
-    heatmaps = np.asarray(heatmaps)
-    if heatmaps.ndim == 3:
-        heatmaps = heatmaps[None, ...]
-
-    batch_size, height, width, num_classes = heatmaps.shape
-    flat = heatmaps.reshape(batch_size, height * width, num_classes)
-    flat_indices = np.argmax(flat, axis=1)
-    scores = np.take_along_axis(flat, flat_indices[:, None, :], axis=1)[:, 0, :]
-    ys, xs = np.divmod(flat_indices, width)
-    keypoints = np.stack([xs, ys], axis=-1)
-    return keypoints, scores
-
 
 # In[ ]:
 
@@ -709,8 +688,8 @@ def heatmaps_to_keypoints(heatmaps):
 
 if "model" in globals() and "x_test" in globals():
     indices = np.random.choice(len(x_test), size=12, replace=False)
-    predictions = model.predict(x_test[indices], verbose=0)
-    probs = predictions["multilabel_output"]
+    preds = model.predict(x_test[indices], verbose=0)
+    probs = preds["multilabel_output"]
 
     plt.figure(figsize=(12, 9))
 
@@ -739,8 +718,8 @@ else:
 
 # Inspect one test prediction in detail.
 idx = 0
-predictions = model.predict(x_test[idx:idx + 1], verbose=0)
-prob = predictions["multilabel_output"][0]
+preds = model.predict(x_test[idx:idx + 1], verbose=0)
+prob = preds["multilabel_output"][0]
 
 print("True digits:", multihot_to_digits(y_test[idx]))
 print("Predicted digits:", probs_to_digits(prob))
@@ -750,22 +729,6 @@ print()
 print("Prediction probabilities:")
 for digit, p in enumerate(prob):
     print(f"digit {digit}: {p:.4f}")
-
-heatmaps = predictions["heatmap_output"]
-predicted_keypoints, keypoint_scores = heatmaps_to_keypoints(heatmaps)
-print("Predicted heatmap keypoints:", predicted_keypoints[0])
-print("Keypoint scores:", np.round(keypoint_scores[0], 4))
-
-fig, axes = plt.subplots(2, 10, figsize=(20, 4))
-for digit in range(10):
-    axes[0, digit].imshow(y_test_heatmaps[idx, :, :, digit], cmap="hot", vmin=0, vmax=1)
-    axes[0, digit].set_title(f"True {digit}")
-    axes[1, digit].imshow(heatmaps[0, :, :, digit], cmap="hot", vmin=0, vmax=1)
-    axes[1, digit].set_title(f"Pred {digit}")
-    axes[0, digit].axis("off")
-    axes[1, digit].axis("off")
-plt.tight_layout()
-plt.show()
 
 
 # In[ ]:
