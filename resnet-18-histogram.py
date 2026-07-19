@@ -244,7 +244,7 @@ def exact_match_accuracy(y_true, y_pred):
 # In[ ]:
 
 
-MAX_DROP_PATH = 0.25
+MAX_DROP_PATH = 0.2
 USE_STOCHASTIC_DEPTH = True
 
 
@@ -382,11 +382,11 @@ model.compile(
     ),
     loss={
         "multilabel_output": keras.losses.BinaryCrossentropy(),
-        "histogram_output": keras.losses.MeanSquaredError(),
+        "histogram_output": keras.losses.MeanAbsoluteError(),
     },
     loss_weights={
-        "multilabel_output": 0.5,
-        "histogram_output": 0.5,
+        "multilabel_output": 0.4,
+        "histogram_output": 0.6,
     },
     metrics={
         "multilabel_output": [
