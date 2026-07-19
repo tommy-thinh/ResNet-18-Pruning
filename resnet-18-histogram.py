@@ -3,7 +3,7 @@
 
 # # 1. Imports and global settings
 
-# In[1]:
+# In[ ]:
 
 
 import os
@@ -14,7 +14,7 @@ os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
-# In[2]:
+# In[ ]:
 
 
 import os
@@ -41,7 +41,7 @@ from tensorflow.keras import layers
 tf.get_logger().setLevel("ERROR")
 
 
-# In[3]:
+# In[ ]:
 
 
 # Reproducibility seed
@@ -62,7 +62,7 @@ print("Setup complete")
 
 # # 2. Data loading
 
-# In[4]:
+# In[ ]:
 
 
 def load_data_pt(path):
@@ -106,7 +106,7 @@ def load_data_pt(path):
     return images, labels, meta
 
 
-# In[5]:
+# In[ ]:
 
 
 def build_histograms(all_digit_labels):
@@ -120,36 +120,9 @@ def build_histograms(all_digit_labels):
         histograms.append(hist)
     return np.stack(histograms, axis=0).astype(np.float32)
 
-def generate_mosaic(images32, labels, histograms, rng):
-    """Generate one fixed 2x2 mosaic from four distinct source images."""
-    indices = rng.choice(len(images32), size=4, replace=False)
-    selected_images = images32[indices]
-
-    mosaic_image = np.zeros((64, 64, 3), dtype=np.float32)
-    placements = ((0, 0), (0, 32), (32, 0), (32, 32))
-
-    for image, (top, left) in zip(selected_images, placements):
-        mosaic_image[top:top + 32, left:left + 32] = image
-
-    mosaic_label = np.max(labels[indices], axis=0).astype(np.float32)
-    mosaic_histogram = np.sum(histograms[indices], axis=0).astype(np.float32)
-    return mosaic_image, mosaic_label, mosaic_histogram
-
-def generate_mosaic_dataset(images32, labels, histograms, num_mosaics, rng):
-    """Generate fresh mosaics; nothing is cached between epochs."""
-    mosaic_images = np.empty((num_mosaics, 64, 64, 3), dtype=np.float32)
-    mosaic_labels = np.empty((num_mosaics, 10), dtype=np.float32)
-    mosaic_histograms = np.empty((num_mosaics, 10), dtype=np.float32)
-
-    for i in range(num_mosaics):
-        mosaic_images[i], mosaic_labels[i], mosaic_histograms[i] = generate_mosaic(
-            images32, labels, histograms, rng
-        )
-
-    return mosaic_images, mosaic_labels, mosaic_histograms
 
 
-# In[12]:
+# In[ ]:
 
 
 # File paths for train, validation, and test.
@@ -160,16 +133,6 @@ test_path = os.path.join("./data/test.pt")
 # Load files if they exist.
 if all(os.path.exists(p) for p in [train_path, val_path, test_path]):
     x_train, y_train, meta_train = load_data_pt(train_path)
-    print("Precomputing 32x32 images...")
-
-    x_train_32 = tf.image.resize(
-        x_train,
-        (32, 32),
-        method="area"
-    ).numpy()
-
-    print("Done.")
-
     x_val, y_val, meta_val = load_data_pt(val_path)
     x_test, y_test, meta_test = load_data_pt(test_path)
 
@@ -188,7 +151,7 @@ else:
 
 # # 3. Visualization
 
-# In[13]:
+# In[ ]:
 
 
 def multihot_to_digits(multihot):
@@ -246,36 +209,15 @@ def visualize_grid(images, labels, meta, num_samples=16):
 
     plt.tight_layout()
     plt.show()
-
-
-def visualize_mosaic_samples(images32, labels, histograms, num_samples=4, seed=SEED):
-    """Display generated mosaics with multilabel and histogram targets."""
-    rng = np.random.default_rng(seed)
-    mosaic_images, mosaic_labels, mosaic_histograms = generate_mosaic_dataset(
-        images32, labels, histograms, num_samples, rng
-    )
-
-    fig, axes = plt.subplots(1, num_samples, figsize=(4 * num_samples, 4))
-    axes = np.atleast_1d(axes)
-    for i, ax in enumerate(axes):
-        ax.imshow(mosaic_images[i].squeeze(), cmap="gray")
-        digits = np.where(mosaic_labels[i] >= 0.5)[0].tolist()
-        counts = {d: int(c) for d, c in enumerate(mosaic_histograms[i]) if c > 0}
-        ax.set_title(f"labels={digits}\ncounts={counts}", fontsize=9)
-        ax.axis("off")
-    plt.tight_layout()
-    plt.show()
-
 # Visualize samples if the dataset has been loaded.
 if "x_train" in globals():
     visualize_one_sample(x_train, y_train, meta_train, idx=0)
     visualize_grid(x_train, y_train, meta_train, num_samples=4)
-    visualize_mosaic_samples(x_train_32, y_train, y_train_hist)
 
 
 # # 3. Define exact match accuracy metrics:
 
-# In[8]:
+# In[ ]:
 
 
 def exact_match_accuracy(y_true, y_pred):
@@ -299,11 +241,37 @@ def exact_match_accuracy(y_true, y_pred):
 
 # # 4. Build the ResNet-18 model
 
-# In[9]:
+# In[ ]:
 
 
-def basic_block(x, filters, stride=1, name=None):
-    """A standard ResNet basic block with two 3x3 convolutions."""
+MAX_DROP_PATH = 0.25
+USE_STOCHASTIC_DEPTH = True
+
+
+class StochasticDepth(layers.Layer):
+    """Randomly drop a residual branch during training."""
+
+    def __init__(self, drop_prob=0.0, **kwargs):
+        super().__init__(**kwargs)
+        self.drop_prob = float(drop_prob)
+
+    def call(self, inputs, training=None):
+        if self.drop_prob == 0.0:
+            return inputs
+
+        if training:
+            keep_prob = 1.0 - self.drop_prob
+            batch_size = tf.shape(inputs)[0]
+            broadcast_shape = (batch_size,) + (1,) * (inputs.shape.rank - 1)
+            random_tensor = keep_prob + tf.random.uniform(broadcast_shape)
+            binary_tensor = tf.floor(random_tensor)
+            return inputs * binary_tensor / keep_prob
+
+        return inputs
+
+
+def basic_block(x, filters, stride=1, drop_prob=0.0, name=None):
+    """A standard ResNet basic block with optional stochastic depth."""
     shortcut = x
 
     y = layers.Conv2D(
@@ -326,6 +294,10 @@ def basic_block(x, filters, stride=1, name=None):
         name=None if name is None else f"{name}_conv2",
     )(y)
     y = layers.BatchNormalization(name=None if name is None else f"{name}_bn2")(y)
+    y = StochasticDepth(
+        drop_prob,
+        name=None if name is None else f"{name}_stochastic_depth",
+    )(y)
 
     if stride != 1 or x.shape[-1] != filters:
         shortcut = layers.Conv2D(
@@ -346,6 +318,9 @@ def basic_block(x, filters, stride=1, name=None):
 def build_resnet18_model(input_shape=(64, 64, 3)):
     """Build a ResNet-18 from scratch for multi-task learning."""
     inputs = keras.Input(shape=input_shape)
+    drop_rates = np.linspace(0.0, MAX_DROP_PATH, 8)
+    if not USE_STOCHASTIC_DEPTH:
+        drop_rates = np.zeros(8, dtype=np.float32)
 
     x = layers.Conv2D(
         64,
@@ -360,17 +335,17 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
     x = layers.MaxPooling2D(pool_size=3, strides=2, padding="same", name="pool1")(x)
 
     # ResNet-18 stages: 2, 2, 2, 2 basic blocks.
-    x = basic_block(x, 64, stride=1, name="conv2_block1")
-    x = basic_block(x, 64, stride=1, name="conv2_block2")
+    x = basic_block(x, 64, stride=1, drop_prob=drop_rates[0], name="conv2_block1")
+    x = basic_block(x, 64, stride=1, drop_prob=drop_rates[1], name="conv2_block2")
 
-    x = basic_block(x, 128, stride=2, name="conv3_block1")
-    x = basic_block(x, 128, stride=1, name="conv3_block2")
+    x = basic_block(x, 128, stride=2, drop_prob=drop_rates[2], name="conv3_block1")
+    x = basic_block(x, 128, stride=1, drop_prob=drop_rates[3], name="conv3_block2")
 
-    x = basic_block(x, 256, stride=2, name="conv4_block1")
-    x = basic_block(x, 256, stride=1, name="conv4_block2")
+    x = basic_block(x, 256, stride=2, drop_prob=drop_rates[4], name="conv4_block1")
+    x = basic_block(x, 256, stride=1, drop_prob=drop_rates[5], name="conv4_block2")
 
-    x = basic_block(x, 512, stride=2, name="conv5_block1")
-    x = basic_block(x, 512, stride=1, name="conv5_block2")
+    x = basic_block(x, 512, stride=2, drop_prob=drop_rates[6], name="conv5_block1")
+    x = basic_block(x, 512, stride=1, drop_prob=drop_rates[7], name="conv5_block2")
 
     x = layers.GlobalAveragePooling2D(name="avg_pool")(x)
     x = layers.Dense(512, activation="relu", name="fc1")(x)
@@ -386,7 +361,7 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
     )
 
 
-# In[10]:
+# In[ ]:
 
 
 # Build the model
@@ -403,7 +378,7 @@ model.compile(
         learning_rate=0.05,
         momentum=0.9,
         use_ema=True,
-        weight_decay=3e-2
+        weight_decay=5e-3
     ),
     loss={
         "multilabel_output": keras.losses.BinaryCrossentropy(),
@@ -427,7 +402,7 @@ model.compile(
 )
 
 
-# In[12]:
+# In[ ]:
 
 
 class MultiTaskTrainingLogger(keras.callbacks.Callback):
@@ -473,7 +448,7 @@ class MultiTaskTrainingLogger(keras.callbacks.Callback):
         print()
 
 
-# In[13]:
+# In[ ]:
 
 
 # Display the model architecture.
@@ -489,79 +464,8 @@ model.summary()
 BATCH_SIZE = 64
 EPOCHS = 200
 
-CLOSE_MOSAIC_EPOCH = 0
-MOSAIC_RATIO = 0.1
-
-class DynamicMosaicSequence(keras.utils.Sequence):
-    """Serve originals plus fresh mosaics during early epochs."""
-    def __init__(self, images,images32, labels, histograms, batch_size, close_epoch, mosaic_ratio, seed=SEED):
-        super().__init__()
-        self.images = images
-        self.images32 = images32
-        self.labels = labels
-        self.histograms = histograms
-        self.batch_size = batch_size
-        self.close_epoch = close_epoch
-        self.num_mosaics = max(1, int(len(images) * mosaic_ratio))
-        self.rng = np.random.default_rng(seed)
-        self.max_samples = len(images) + self.num_mosaics
-        self.current_images = images
-        self.current_labels = labels
-        self.current_histograms = histograms
-        self.use_mosaic = False
-        self.current_epoch = None
-
-    def set_epoch(self, epoch):
-        if self.current_epoch == epoch:
-            return
-        self.use_mosaic = epoch < self.close_epoch
-        if self.use_mosaic:
-            print(f"Generating {self.num_mosaics} mosaics for epoch {epoch + 1}")
-            mosaic_images, mosaic_labels, mosaic_histograms = generate_mosaic_dataset(
-                self.images32, self.labels, self.histograms, self.num_mosaics, self.rng
-            )
-            self.current_images = np.concatenate([self.images, mosaic_images], axis=0)
-            self.current_labels = np.concatenate([self.labels, mosaic_labels], axis=0)
-            self.current_histograms = np.concatenate([self.histograms, mosaic_histograms], axis=0)
-
-            perm = self.rng.permutation(len(self.current_images))
-            self.current_images = self.current_images[perm]
-            self.current_labels = self.current_labels[perm]
-            self.current_histograms = self.current_histograms[perm]
-        else:
-            self.current_images = self.images
-            self.current_labels = self.labels
-            self.current_histograms = self.histograms
-        self.current_epoch = epoch
-
-    def __len__(self):
-        return int(np.ceil(len(self.current_images) / self.batch_size))
-
-    def __getitem__(self, batch_index):
-        start = batch_index * self.batch_size
-        end = min(start + self.batch_size, len(self.current_images))
-        indices = np.arange(start, end)
-        return self.current_images[indices], {
-            "multilabel_output": self.current_labels[indices],
-            "histogram_output": self.current_histograms[indices],
-        }
-
-class MosaicEpochScheduler(keras.callbacks.Callback):
-    def __init__(self, sequence):
-        super().__init__()
-        self.sequence = sequence
-
-    def on_epoch_begin(self, epoch, logs=None):
-        self.sequence.set_epoch(epoch)
-
-train_sequence = DynamicMosaicSequence(
-    x_train, x_train_32, y_train, y_train_hist, BATCH_SIZE,
-    CLOSE_MOSAIC_EPOCH, MOSAIC_RATIO,
-)
-
 # Use callbacks to improve training.
 callbacks = [
-    MosaicEpochScheduler(train_sequence),
     MultiTaskTrainingLogger(),
     keras.callbacks.EarlyStopping(
         monitor="val_multilabel_output_exact_match_accuracy",
@@ -586,7 +490,11 @@ callbacks = [
 
 # Train the model.
 history = model.fit(
-    train_sequence,
+    x_train,
+    {
+        "multilabel_output": y_train,
+        "histogram_output": y_train_hist,
+    },
     validation_data=(
         x_val,
         {
@@ -594,6 +502,7 @@ history = model.fit(
             "histogram_output": y_val_hist,
         },
     ),
+    batch_size=BATCH_SIZE,
     epochs=EPOCHS,
     callbacks=callbacks,
     verbose=0,
