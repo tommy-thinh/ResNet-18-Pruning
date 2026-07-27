@@ -348,8 +348,8 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
     x = basic_block(x, 512, stride=1, drop_prob=drop_rates[7], name="conv5_block2")
 
     x = layers.GlobalAveragePooling2D(name="avg_pool")(x)
-    x = layers.Dense(512, activation="relu", name="fc1")(x)
-    x = layers.Dropout(0.5, name="dropout")(x)
+    x = layers.Dense(256, activation="relu", name="fc1")(x)
+    x = layers.Dropout(0.3, name="dropout")(x)
 
     multilabel_output = layers.Dense(10, activation="sigmoid", name="multilabel_output")(x)
     histogram_output = layers.Dense(10, activation="linear", name="histogram_output")(x)
@@ -385,8 +385,8 @@ model.compile(
         "histogram_output": keras.losses.MeanAbsoluteError(),
     },
     loss_weights={
-        "multilabel_output": 0.4,
-        "histogram_output": 0.6,
+        "multilabel_output": 0.5,
+        "histogram_output": 0.5,
     },
     metrics={
         "multilabel_output": [
