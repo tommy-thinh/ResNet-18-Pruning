@@ -128,8 +128,7 @@ def main() -> None:
     data_dir = Path("./data")
     splits = {
         "Train": data_dir / "train.pt",
-        "Validation": data_dir / "val.pt",
-        "Test": data_dir / "test.pt",
+        "Train_generated": data_dir / "train_generated.pt",
     }
 
     missing = [name for name, path in splits.items() if not path.exists()]
