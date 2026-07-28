@@ -3,7 +3,7 @@
 
 # # 1. Imports and global settings
 
-# In[ ]:
+# In[1]:
 
 
 import os
@@ -14,7 +14,7 @@ os.environ["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
 os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 
-# In[ ]:
+# In[2]:
 
 
 import os
@@ -41,7 +41,7 @@ from tensorflow.keras import layers
 tf.get_logger().setLevel("ERROR")
 
 
-# In[ ]:
+# In[3]:
 
 
 # Reproducibility seed
@@ -62,22 +62,11 @@ print("Setup complete")
 
 # # 2. Data loading
 
-# In[ ]:
+# In[4]:
 
 
 def load_data_pt(path):
-    """
-    Load one saved .pt split and convert it to Keras-friendly arrays.
-
-    Returns
-    -------
-    images:
-        NumPy array of shape [N, H, W, 3], values in [0, 1].
-
-    labels:
-        NumPy array of shape [N, 10].
-        These are multi-hot labels used for training.
-    """
+    """Load a validation/test split into NumPy arrays."""
     data = torch.load(path, map_location="cpu")
 
     # Convert [N, H, W] uint8 to [N, H, W, 1] float32.
@@ -90,23 +79,75 @@ def load_data_pt(path):
     # Multi-label targets.
     labels = data["labels"].numpy().astype("float32")
 
-    # Extra metadata, not required for model training.
-    center_labels = data["center_labels"].numpy().astype("int64")
-    count_labels = data["count_labels"].numpy().astype("int64")
-
     meta = {
-        "center_labels": center_labels,
-        "count_labels": count_labels,
+        "center_labels": data["center_labels"].numpy().astype("int64"),
+        "count_labels": data["count_labels"].numpy().astype("int64"),
         "num_digits": data["num_digits"].numpy().astype("int64"),
         "all_digit_labels": data["all_digit_labels"].numpy().astype("int64"),
         "all_positions": data["all_positions"].numpy().astype("int64"),
         "label_type": data.get("label_type", None),
     }
-
     return images, labels, meta
 
 
-# In[ ]:
+class LazyMultiTaskSequence(keras.utils.Sequence):
+    """Read memory-mapped .pt training files one batch at a time."""
+
+    def __init__(self, paths, batch_size, shuffle=True):
+        super().__init__()
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.stores = [
+            torch.load(path, map_location="cpu", mmap=True)
+            for path in paths
+        ]
+        self.sizes = [len(store["images"]) for store in self.stores]
+        self.offsets = np.cumsum([0] + self.sizes)
+        self.total_size = int(self.offsets[-1])
+        self.indices = np.arange(self.total_size)
+        self.on_epoch_end()
+
+    def __len__(self):
+        return int(np.ceil(self.total_size / self.batch_size))
+
+    def on_epoch_end(self):
+        if self.shuffle:
+            np.random.shuffle(self.indices)
+
+    def __getitem__(self, batch_index):
+        batch_indices = self.indices[
+            batch_index * self.batch_size:
+            (batch_index + 1) * self.batch_size,
+        ]
+        image_parts = []
+        label_parts = []
+        histogram_parts = []
+        embedding_target_parts = []
+
+        for store_index, store in enumerate(self.stores):
+            start = self.offsets[store_index]
+            end = self.offsets[store_index + 1]
+            selected = batch_indices[(batch_indices >= start) & (batch_indices < end)] - start
+            if len(selected) == 0:
+                continue
+
+            selected_tensor = torch.as_tensor(selected, dtype=torch.long)
+            images = store["images"].index_select(0, selected_tensor).numpy().astype("float32") / 255.0
+            images = np.repeat(images[..., None], repeats=3, axis=-1)
+            image_parts.append(images)
+            label_parts.append(store["labels"].index_select(0, selected_tensor).numpy().astype("float32"))
+            histogram_parts.append(store["count_labels"].index_select(0, selected_tensor).numpy().astype("float32"))
+            embedding_target_parts.append(store["count_labels"].index_select(0, selected_tensor).numpy().astype("float32"))
+
+        embedding_targets = np.concatenate(embedding_target_parts, axis=0)
+        return np.concatenate(image_parts, axis=0), {
+            "multilabel_output": np.concatenate(label_parts, axis=0),
+            "histogram_output": np.concatenate(histogram_parts, axis=0),
+            "embedding_output": embedding_targets,
+        }
+
+
+# In[5]:
 
 
 def build_histograms(all_digit_labels):
@@ -121,29 +162,35 @@ def build_histograms(all_digit_labels):
     return np.stack(histograms, axis=0).astype(np.float32)
 
 
-
-# In[ ]:
+# In[6]:
 
 
 # File paths for train, validation, and test.
 train_path = os.path.join("./data/train.pt")
+train_generated_path = os.path.join("./data/train_generated.pt")
 val_path = os.path.join("./data/val.pt")
 test_path = os.path.join("./data/test.pt")
 
-# Load files if they exist.
+BATCH_SIZE = 64
+
+# Keep the large training splits lazy; only validation and test are loaded eagerly
 if all(os.path.exists(p) for p in [train_path, val_path, test_path]):
-    x_train, y_train, meta_train = load_data_pt(train_path)
+    train_sequence = LazyMultiTaskSequence(
+        [train_path],
+        batch_size=BATCH_SIZE,
+        shuffle=True,
+    )
     x_val, y_val, meta_val = load_data_pt(val_path)
     x_test, y_test, meta_test = load_data_pt(test_path)
 
-    y_train_hist = build_histograms(meta_train["all_digit_labels"] )
-    y_val_hist = build_histograms(meta_val["all_digit_labels"] )
-    y_test_hist = build_histograms(meta_test["all_digit_labels"] )
+    y_val_hist = build_histograms(meta_val["all_digit_labels"])
+    y_test_hist = build_histograms(meta_test["all_digit_labels"])
 
     print("Data loaded successfully.")
-    print("Train:", x_train.shape, y_train.shape, y_train_hist.shape)
-    print("Val:  ", x_val.shape, y_val.shape, y_val_hist.shape)
-    print("Test: ", x_test.shape, y_test.shape, y_test_hist.shape)
+    print("Lazy train samples:", train_sequence.total_size)
+    print("Train batches:     ", len(train_sequence))
+    print("Val:               ", x_val.shape, y_val.shape, y_val_hist.shape)
+    print("Test:              ", x_test.shape, y_test.shape, y_test_hist.shape)
     print("You can now proceed to model training and evaluation.")
 else:
     print("Dataset files not found yet.")
@@ -151,73 +198,48 @@ else:
 
 # # 3. Visualization
 
-# In[ ]:
+# In[7]:
 
 
 def multihot_to_digits(multihot):
-    """
-    Convert a multi-hot vector into a list of digit labels.
-
-    Example:
-        [0, 1, 0, 0, 1, 0, 0, 0, 0, 1]
-        becomes
-        [1, 4, 9]
-    """
+    """Convert a multi-hot vector into a list of digit labels."""
     return np.where(multihot >= 0.5)[0].tolist()
 
 
-def visualize_one_sample(images, labels, meta, idx=0):
-    """Visualize one generated image and its labels."""
-    img = images[idx].squeeze()
+def visualize_train_samples(sequence, num_samples=4):
+    """Visualize a few training samples from one lazy-loaded batch."""
+    images, targets = sequence[0]
+    labels = targets["multilabel_output"]
+    histograms = targets["histogram_output"]
+    num_samples = min(num_samples, len(images))
+    indices = np.random.choice(len(images), size=num_samples, replace=False)
 
-    digits_present = multihot_to_digits(labels[idx])
-    center_label = meta["center_labels"][idx]
-    all_labels = meta["all_digit_labels"][idx]
-    n_digits = meta["num_digits"][idx]
+    rows = int(np.ceil(num_samples / 2))
+    fig, axes = plt.subplots(rows, 2, figsize=(8, 4 * rows))
+    axes = np.atleast_1d(axes).ravel()
 
-    # Remove padding values.
-    valid_all_labels = all_labels[all_labels >= 0].tolist()
+    for ax, idx in zip(axes, indices):
+        ax.imshow(images[idx].squeeze(), cmap="gray")
+        histogram_text = histograms[idx].astype(np.int64).tolist()
+        ax.set_title(f"train batch index={idx}"
+                     f"\ny={multihot_to_digits(labels[idx])}"
+                     f"\nhistogram={histogram_text}")
+        ax.axis("off")
 
-    plt.figure(figsize=(4, 4))
-    plt.imshow(img, cmap="gray")
-    plt.title(
-        f"multi-label={digits_present}\n"
-        f"center={center_label}, all={valid_all_labels}, n={n_digits}"
-    )
-    plt.axis("off")
-    plt.show()
-
-
-def visualize_grid(images, labels, meta, num_samples=16):
-    """Visualize a grid of random samples."""
-    rows = int(np.sqrt(num_samples))
-    cols = int(np.ceil(num_samples / rows))
-
-    plt.figure(figsize=(6, 6))
-
-    for i in range(num_samples):
-        idx = random.randint(0, len(images) - 1)
-
-        img = images[idx].squeeze()
-        digits_present = multihot_to_digits(labels[idx])
-        center_label = meta["center_labels"][idx]
-
-        plt.subplot(rows, cols, i + 1)
-        plt.imshow(img, cmap="gray")
-        plt.title(f"y={digits_present}\nc={center_label}", fontsize=8)
-        plt.axis("off")
+    for ax in axes[num_samples:]:
+        ax.axis("off")
 
     plt.tight_layout()
     plt.show()
-# Visualize samples if the dataset has been loaded.
-if "x_train" in globals():
-    visualize_one_sample(x_train, y_train, meta_train, idx=0)
-    visualize_grid(x_train, y_train, meta_train, num_samples=4)
+
+# Visualize training samples without materializing the full training set.
+if "train_sequence" in globals():
+    visualize_train_samples(train_sequence, num_samples=4)
 
 
 # # 3. Define exact match accuracy metrics:
 
-# In[ ]:
+# In[8]:
 
 
 def exact_match_accuracy(y_true, y_pred):
@@ -241,7 +263,7 @@ def exact_match_accuracy(y_true, y_pred):
 
 # # 4. Build the ResNet-18 model
 
-# In[ ]:
+# In[9]:
 
 
 MAX_DROP_PATH = 0.2
@@ -348,7 +370,10 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
     x = basic_block(x, 512, stride=1, drop_prob=drop_rates[7], name="conv5_block2")
 
     x = layers.GlobalAveragePooling2D(name="avg_pool")(x)
-    x = layers.Dense(256, activation="relu", name="fc1")(x)
+    embedding = layers.Dense(128, use_bias=False, name="embedding")(x)
+    embedding_output = layers.UnitNormalization(axis=-1, name="embedding_output")(embedding)
+
+    x = layers.Dense(512, activation="relu", name="fc1")(x)
     x = layers.Dropout(0.3, name="dropout")(x)
 
     multilabel_output = layers.Dense(10, activation="sigmoid", name="multilabel_output")(x)
@@ -356,12 +381,16 @@ def build_resnet18_model(input_shape=(64, 64, 3)):
 
     return keras.Model(
         inputs=inputs,
-        outputs={"multilabel_output": multilabel_output, "histogram_output": histogram_output},
+        outputs={
+            "multilabel_output": multilabel_output,
+            "histogram_output": histogram_output,
+            "embedding_output": embedding_output,
+        },
         name="multi_task_resnet18",
     )
 
 
-# In[ ]:
+# In[10]:
 
 
 # Build the model
@@ -370,6 +399,22 @@ model = build_resnet18_model(input_shape=INPUT_SHAPE)
 
 
 # In[ ]:
+
+
+class BatchSimilarityMAE(keras.losses.Loss):
+    """Match pairwise histogram similarity to pairwise embedding similarity."""
+
+    def call(self, y_true, y_pred):
+        digit_totals = tf.reduce_sum(y_true, axis=-1, keepdims=True)
+        hist_norm = y_true / tf.maximum(digit_totals, tf.keras.backend.epsilon())
+        hist_norm = tf.math.l2_normalize(hist_norm, axis=-1)
+        target_similarity = tf.matmul(hist_norm, hist_norm, transpose_b=True)
+
+        embedding = tf.math.l2_normalize(y_pred, axis=-1)
+        predicted_similarity = tf.matmul(embedding, embedding, transpose_b=True)
+        predicted_similarity = (predicted_similarity + 1.0) / 2.0
+
+        return tf.reduce_mean(tf.abs(predicted_similarity - target_similarity), axis=1)
 
 
 # Compile the model with separate losses and metrics for each output.
@@ -383,10 +428,12 @@ model.compile(
     loss={
         "multilabel_output": keras.losses.BinaryCrossentropy(),
         "histogram_output": keras.losses.MeanAbsoluteError(),
+        "embedding_output": BatchSimilarityMAE(name="similarity_loss"),
     },
     loss_weights={
-        "multilabel_output": 0.5,
-        "histogram_output": 0.5,
+        "multilabel_output": 0.25,
+        "histogram_output": 0.25,
+        "embedding_output": 0.5,
     },
     metrics={
         "multilabel_output": [
@@ -402,7 +449,7 @@ model.compile(
 )
 
 
-# In[ ]:
+# In[12]:
 
 
 class MultiTaskTrainingLogger(keras.callbacks.Callback):
@@ -444,14 +491,17 @@ class MultiTaskTrainingLogger(keras.callbacks.Callback):
         print(f"  Train Loss: {get_value('histogram_output_loss'):.4f} ")
         print(f"  Val Loss: {get_value('val_histogram_output_loss'):.4f} ")
         print()
+        print("Embedding")
+        print(f"  Train Loss: {get_value('embedding_output_loss'):.4f} ")
+        print(f"  Val Loss: {get_value('val_embedding_output_loss'):.4f} ")
+        print()
         print(f"Learning Rate : {lr:.4f}")
         print()
 
 
-# In[ ]:
+# In[13]:
 
 
-# Display the model architecture.
 model.summary()
 
 
@@ -470,46 +520,42 @@ callbacks = [
     keras.callbacks.EarlyStopping(
         monitor="val_multilabel_output_exact_match_accuracy",
         mode="max",
-        patience=20,
+        patience=10,
         restore_best_weights=True,
         verbose=1
     ),
     keras.callbacks.ReduceLROnPlateau(
         monitor="val_loss",
         mode="min",
-        factor=0.25,
-        patience=10,
+        factor=0.1,
+        patience=5,
         min_lr=1e-5,
         verbose=1
     ),
 ]
 
 
-# In[ ]:
+# In[15]:
 
 
 # Train the model.
 history = model.fit(
-    x_train,
-    {
-        "multilabel_output": y_train,
-        "histogram_output": y_train_hist,
-    },
+    train_sequence,
     validation_data=(
         x_val,
         {
             "multilabel_output": y_val,
             "histogram_output": y_val_hist,
+            "embedding_output": y_val_hist,
         },
     ),
-    batch_size=BATCH_SIZE,
     epochs=EPOCHS,
     callbacks=callbacks,
     verbose=0,
 )
 
 
-# In[ ]:
+# In[16]:
 
 
 # Plot training history if available.
@@ -541,12 +587,7 @@ else:
     print("No training history found.")
 
 
-# ## Evaluation Notes
-# - The primary metric remains `val_multilabel_output_exact_match_accuracy`.
-# - The histogram head is auxiliary and uses a smaller loss weight.
-# 
-
-# In[ ]:
+# In[17]:
 
 
 # Evaluate the model on the test set.
@@ -555,6 +596,7 @@ results = model.evaluate(
     {
         "multilabel_output": y_test,
         "histogram_output": y_test_hist,
+        "embedding_output": y_test_hist,
     },
     verbose=1,
 )
@@ -565,32 +607,18 @@ results = model.evaluate(
 
 
 # # 7. Visualize predictions
-# 
-# The model outputs probabilities.
-# 
-# Example:
-# 
-# ```text
-# digit 0: 0.02
-# digit 1: 0.91
-# digit 2: 0.04
-# ...
-# ```
-# 
-# If a probability is greater than or equal to the threshold, that digit is predicted as present.
 
-# In[ ]:
+# In[18]:
 
 
 # Prediction helper functions
-# Student donnt allow to change the threshold value
 PREDICTION_THRESHOLD=0.5
 def probs_to_digits(probs, threshold=PREDICTION_THRESHOLD):
     """Convert prediction probabilities into a list of predicted digits."""
     return np.where(probs >= threshold)[0].tolist()
 
 
-# In[ ]:
+# In[19]:
 
 
 # Visualize several test predictions.
