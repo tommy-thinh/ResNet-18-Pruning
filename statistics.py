@@ -127,7 +127,7 @@ def inspect_dataset(name, images, labels, meta):
 def main() -> None:
     data_dir = Path("./data")
     splits = {
-        "Train": data_dir / "train.pt",
+        "Test": data_dir / "test.pt",
         "Train_generated": data_dir / "train_generated.pt",
     }
 
