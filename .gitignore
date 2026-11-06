@@ -1,3 +1,15 @@
 data/
 AGENTS.md
 PLANS.md
+*.pdf
+models/
+.venv/
+__pycache__/
+.pytest_cache/
+*.py[cod]
+.ipynb_checkpoints/
+*.egg-info/
+tmp/
+pytest-of-*/
+__autograph_generated_file*.py
+/tmp????????
