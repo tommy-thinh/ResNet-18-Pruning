@@ -4,14 +4,16 @@ import os
 from pathlib import Path
 import sys
 
+from .config import normalize_device
+
 
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--output", type=Path, required=True, help="One result JSON")
     parser.add_argument("--model-dir", type=Path, help="Default: models/<output filename stem>")
     parser.add_argument("--data-dir", type=Path, default=Path("data"))
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--device", choices=("cpu", "gpu:0", "gpu"), default="gpu:0",
-                        help="Execution device; gpu:0 is the default (gpu is an alias)")
+    parser.add_argument("--device", type=normalize_device, default="/GPU:0",
+                        help="GPU index (0, 1, ...), gpu:N, /GPU:N, or cpu; default: 0")
     parser.add_argument("--gpu-memory-mb", type=int,
                         help="Optional TensorFlow GPU memory cap in MB; default: grow as needed")
     parser.add_argument("--batch-size", type=int, default=16)
@@ -62,10 +64,10 @@ def prepare(args):
                            device=device)
 
 
-def training_config(args):
+def training_config(args, *, device: str | None = None):
     from .config import TrainingConfig
     return TrainingConfig(epochs=args.epochs, batch_size=args.batch_size, learning_rate=args.learning_rate,
-                          device="/CPU:0" if args.device == "cpu" else "/GPU:0")
+                          device=args.device if device is None else device)
 
 
 def save_result(args, result: dict) -> None:

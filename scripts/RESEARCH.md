@@ -57,9 +57,28 @@ slots. Every independent training run resets optimizer and Dropout generator sta
 
 Training scopes model/optimizer creation, training and validation with
 `tf.device(config.device)`. Evaluation/inference uses the same selected placement.
-The default is `/GPU:0`; explicit CPU execution uses `/CPU:0`. Device availability
-is checked so a GPU request cannot silently become a CPU benchmark. The notebook
-and CLI configure GPU visibility before model construction.
+The default selects GPU 0; integer indices and `gpu:N` / `/GPU:N` names are
+normalized in both training and benchmark configs. Explicit CPU execution uses
+`/CPU:0`. Device availability is checked before training so a GPU request cannot
+silently become a CPU benchmark. The notebook and CLI expose the selected physical
+GPU before model construction; TensorFlow renumbers it to logical `/GPU:0`.
+The resulting logical device is passed to training as well as benchmarking.
+TensorRT selects its CUDA device explicitly because TensorFlow visibility alone
+does not change the CUDA runtime's current device.
+
+- [CUDA runtime device selection](https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__DEVICE.html)
+- [Polygraphy CUDA runtime wrapper](https://github.com/NVIDIA/TensorRT/blob/main/tools/Polygraphy/polygraphy/cuda/cuda.py)
+
+Evaluation configures the existing BCE and metrics with `optimizer=None`; only
+training creates SGD/MaskedSGD from an explicit training config. This avoids
+re-reading unrelated training defaults after an expensive training run.
+Training clones an uncompiled Functional graph before copying weights and
+creating its fresh optimizer. Keras 3.12's regular clone path copies compile
+state and attempts to build an optimizer even when evaluation used `None`.
+
+- [Keras 3.12 compile implementation](https://github.com/keras-team/keras/blob/v3.12.0/keras/src/trainers/trainer.py)
+- [Keras 3.12 optimizer lookup accepts None](https://github.com/keras-team/keras/blob/v3.12.0/keras/src/optimizers/__init__.py)
+- [Functional graphs from existing tensors](https://keras.io/api/models/model/)
 
 The shared device setup enables TensorFlow memory growth by default, before GPU
 initialization. Training, fine-tuning and evaluation therefore allocate VRAM as

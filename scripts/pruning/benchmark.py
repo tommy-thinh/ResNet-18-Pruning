@@ -18,8 +18,9 @@ def runtime_info(config: BenchmarkConfig) -> dict:
     require_device(config.device)
     hardware = platform.processor() or "CPU"
     if "GPU" in config.device.upper():
-        gpus = tf.config.list_physical_devices("GPU")
-        hardware = tf.config.experimental.get_device_details(gpus[0]).get("device_name", "GPU")
+        gpus = tf.config.get_visible_devices("GPU")
+        index = int(config.device.rsplit(":", 1)[1])
+        hardware = tf.config.experimental.get_device_details(gpus[index]).get("device_name", "GPU")
     return {"framework": f"TensorFlow {tf.__version__}", "device": config.device, "hardware": hardware,
             "precision": "float32", "batch_size": config.batch_size}
 

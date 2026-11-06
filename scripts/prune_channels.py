@@ -30,6 +30,7 @@ def parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = parser().parse_args()
     bench = prepare(args)
+    config = training_config(args, device=bench.device)
     from scripts.pruning.channels import prune_channels
     from scripts.pruning.model import load_model
     from scripts.pruning.reference import load_baseline, load_splits, pruning_result
@@ -40,7 +41,7 @@ def main() -> None:
     model, plan = prune_channels(load_model(args.checkpoint), args.remove)
     details = {"channel_removal": args.remove, "widths": plan["compact_widths"]}
     result = pruning_result("channels", args, bench, details, reference)
-    _, result = finetune_and_measure(model, data, args, training_config(args), bench, result)
+    _, result = finetune_and_measure(model, data, args, config, bench, result)
     save_result(args, result)
 
 

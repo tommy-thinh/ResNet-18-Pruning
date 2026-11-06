@@ -22,6 +22,7 @@ def parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = parser().parse_args()
     bench = prepare(args)
+    config = training_config(args, device=bench.device)
     from scripts.pruning.masks import apply_masks, save_masks, semi_structured_masks, valid_2of4
     from scripts.pruning.model import load_model
     from scripts.pruning.reference import load_baseline, load_splits, pruning_result
@@ -35,7 +36,7 @@ def main() -> None:
     save_masks(args.model_dir / "masks.npz", masks)
     details = {"density": 0.5, "excluded": excluded}
     result = pruning_result("semi24", args, bench, details, reference)
-    model, result = finetune_and_measure(model, data, args, training_config(args), bench, result, masks)
+    model, result = finetune_and_measure(model, data, args, config, bench, result, masks)
     details["pattern_valid"] = all(valid_2of4(model.get_layer(name).kernel.numpy()) for name in masks)
     if not details["pattern_valid"]:
         raise AssertionError("Fine-tuning changed the 2:4 pattern.")

@@ -35,10 +35,15 @@ python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU')
 ```
 
 Training, fine-tuning, validation and benchmarking default explicitly to GPU 0
-(`--device gpu:0`, TensorFlow `/GPU:0`). `gpu` remains an alias for `gpu:0`.
-GPU 0 means the first GPU visible to TensorFlow; `CUDA_VISIBLE_DEVICES` can remap
-physical indices. Pass `--device cpu` for CPU execution. GPU requests fail if no
-GPU is available instead of silently falling back to CPU.
+(`--device 0`). GPU indices such as `0` and `1`, `gpu:N` and `/GPU:N` are accepted
+in the CLI and both config classes; `gpu` is an alias for GPU 0. Use `--device 1`
+to select the second available GPU directly; `CUDA_VISIBLE_DEVICES` is not required.
+Indices refer to GPUs visible to the process, so an existing CUDA visibility mask
+still applies. The selected physical GPU is exposed alone to TensorFlow and becomes
+logical `/GPU:0`; that log name does not mean physical GPU 0 was selected.
+Training and benchmarking use this same logical placement. TensorRT explicitly
+selects the corresponding CUDA GPU too. Pass `--device cpu` for CPU execution.
+Invalid names and unavailable GPU indices fail before training, without CPU fallback.
 TensorFlow GPU memory grows on demand by default, including in the notebook,
 baseline training, pruning fine-tuning, Lottery Ticket retraining and benchmarking.
 Larger batches can use more VRAM without changing a fixed memory budget. There is
@@ -56,8 +61,8 @@ use `--epochs`, `--learning-rate`, `--batch-size` and `--device` to override a r
 Other training defaults, such as momentum and weight decay, come from the config.
 File edits affect the next process, not training already running. Lottery Ticket
 training keeps the saved baseline budget while using the selected current device.
-In the notebook, GPU 0 is configured in the setup cell; change that cell to `cpu`
-for CPU execution and restart the kernel before changing device visibility.
+The notebook reads `TrainingConfig().device` in its setup cell; set `device = 0`,
+`device = 1` or `device = "cpu"` in that class before starting a fresh kernel.
 
 ## Train or reuse the baseline
 
@@ -80,6 +85,8 @@ the raw best-validation epoch checkpoint, including optimizer state. After fit
 finalizes EMA, training reloads that epoch and saves `model.keras` without the
 optimizer. Use **model.keras** for independent pruning and comparable model sizes.
 Every fine-tuning or Lottery Ticket training run starts with fresh optimizer state.
+Evaluation compiles only the loss and metrics, without creating an optimizer or
+reading unrelated training defaults. Training always receives an explicit config.
 
 To benchmark an existing checkpoint without retraining:
 

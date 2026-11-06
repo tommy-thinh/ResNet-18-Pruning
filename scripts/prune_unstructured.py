@@ -23,6 +23,7 @@ def parser() -> argparse.ArgumentParser:
 def main() -> None:
     args = parser().parse_args()
     bench = prepare(args)
+    config = training_config(args, device=bench.device)
     from scripts.pruning.masks import apply_masks, eligible_layers, magnitude_masks, save_masks
     from scripts.pruning.model import load_model
     from scripts.pruning.reference import load_baseline, load_splits, pruning_result
@@ -35,7 +36,7 @@ def main() -> None:
     apply_masks(model, masks)
     save_masks(args.model_dir / "masks.npz", masks)
     result = pruning_result("unstructured", args, bench, {"density": args.density}, reference)
-    _, result = finetune_and_measure(model, data, args, training_config(args), bench, result, masks)
+    _, result = finetune_and_measure(model, data, args, config, bench, result, masks)
     save_result(args, result)
 
 

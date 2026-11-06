@@ -27,7 +27,7 @@ def main() -> None:
     from scripts.pruning.training import save_initialization, train
 
     data = load_splits(args.data_dir)
-    config = training_config(args)
+    config = training_config(args, device=bench.device)
     model = build_resnet18_model(dropout_seed=args.seed)
     save_initialization(model, args.model_dir)
     model, history = train(model, data["train"], data["val"], config, args.model_dir, seed=args.seed)

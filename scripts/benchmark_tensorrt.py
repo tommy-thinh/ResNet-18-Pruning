@@ -20,10 +20,16 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = parser().parse_args()
-    if args.device == "cpu":
-        raise ValueError("TensorRT requires --device gpu:0.")
+    if args.device == "/CPU:0":
+        raise ValueError("TensorRT requires a GPU device.")
     bench = prepare(args)
+    from polygraphy import cuda
     from scripts.pruning.inference import tensorrt_comparison
+
+    # TensorFlow visibility does not select the CUDA device used by TensorRT.
+    # https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__DEVICE.html
+    runtime = cuda.wrapper()
+    runtime.check(runtime.handle.cudaSetDevice(int(args.device.rsplit(":", 1)[1])))
     result = tensorrt_comparison(args.dense_onnx, args.sparse_onnx, args.data_dir / "test.pt", args.model_dir, bench)
     save_result(args, result)
 

@@ -3,6 +3,20 @@ from dataclasses import dataclass
 import math
 
 
+def normalize_device(device: str | int) -> str:
+    """Accept a GPU index or TensorFlow device name without initializing TensorFlow."""
+    name = str(device).strip().upper().removeprefix("/")
+    if name in ("CPU", "CPU:0"):
+        return "/CPU:0"
+    if name == "GPU":
+        return "/GPU:0"
+    if name.startswith("GPU:"):
+        name = name[4:]
+    if name.isdecimal():
+        return f"/GPU:{int(name)}"
+    raise ValueError("Use a nonnegative GPU index (0, 1, ...), gpu:N, /GPU:N, or cpu.")
+
+
 @dataclass(frozen=True)
 class TrainingConfig:
     epochs: int = 200
@@ -15,11 +29,10 @@ class TrainingConfig:
     lr_patience: int = 10
     lr_factor: float = 0.5
     min_lr: float = 1e-5
-    device: str = "/GPU:0"
+    device: str | int = "/GPU:0"
 
     def __post_init__(self) -> None:
-        if self.device not in ("/GPU:0", "/CPU:0"):
-            raise ValueError("Use /GPU:0 or /CPU:0.")
+        object.__setattr__(self, "device", normalize_device(self.device))
         if self.epochs < 1 or self.batch_size < 1:
             raise ValueError("Epochs and batch size must be positive.")
         if not math.isfinite(self.learning_rate) or self.learning_rate <= 0:
@@ -37,10 +50,9 @@ class BenchmarkConfig:
     batch_size: int = 16
     warmup: int = 10
     repeats: int = 50
-    device: str = "/GPU:0"
+    device: str | int = "/GPU:0"
 
     def __post_init__(self) -> None:
-        if self.device not in ("/GPU:0", "/CPU:0"):
-            raise ValueError("Use /GPU:0 or /CPU:0.")
+        object.__setattr__(self, "device", normalize_device(self.device))
         if self.batch_size < 1 or self.warmup < 1 or self.repeats < 2:
             raise ValueError("Use batch_size >= 1, warmup >= 1, repeats >= 2.")

@@ -71,20 +71,24 @@ def build_resnet18_model(
 
 
 def compile_model(model: keras.Model, config=None) -> None:
-    from .config import TrainingConfig
-    from .masks import MaskedSGD, model_masks
+    """Configure evaluation, or training when an explicit training config is supplied."""
+    # Evaluation needs loss/metrics, not a training optimizer or training defaults.
+    # https://github.com/keras-team/keras/blob/v3.12.0/keras/src/trainers/trainer.py
+    optimizer = None
+    if config is not None:
+        from .masks import MaskedSGD, model_masks
 
-    config = config or TrainingConfig()
-    # EMA is finalized by fit(); always reload the best epoch afterward.
-    # https://keras.io/api/optimizers/sgd/
-    optimizer_class = MaskedSGD if model_masks(model) else keras.optimizers.SGD
-    model.compile(
-        optimizer=optimizer_class(
+        # EMA is finalized by fit(); always reload the best epoch afterward.
+        # https://keras.io/api/optimizers/sgd/
+        optimizer_class = MaskedSGD if model_masks(model) else keras.optimizers.SGD
+        optimizer = optimizer_class(
             learning_rate=config.learning_rate,
             momentum=config.momentum,
             weight_decay=config.weight_decay,
             use_ema=config.use_ema,
-        ),
+        )
+    model.compile(
+        optimizer=optimizer,
         loss="binary_crossentropy",
         metrics=[
             keras.metrics.BinaryAccuracy(name="binary_accuracy"),
