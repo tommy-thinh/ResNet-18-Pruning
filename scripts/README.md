@@ -39,8 +39,15 @@ Training, fine-tuning, validation and benchmarking default explicitly to GPU 0
 GPU 0 means the first GPU visible to TensorFlow; `CUDA_VISIBLE_DEVICES` can remap
 physical indices. Pass `--device cpu` for CPU execution. GPU requests fail if no
 GPU is available instead of silently falling back to CPU.
-The default TensorFlow memory limit is 4096 MB, configurable with
-`--gpu-memory-mb`. TensorRT uses additional workspace (up to 1 GiB).
+TensorFlow GPU memory grows on demand by default, including in the notebook,
+baseline training, pruning fine-tuning, Lottery Ticket retraining and benchmarking.
+Larger batches can use more VRAM without changing a fixed memory budget. There is
+no default 4 GB cap; `--gpu-memory-mb` is an optional explicit cap instead of growth.
+Growth is bounded by available VRAM and does not automatically reduce the batch
+size if it cannot fit. TensorFlow may retain allocated memory for reuse.
+Restart the process (or notebook kernel) for a changed memory policy to take effect.
+TensorRT runtime buffers follow the engine's batch-size profile; its separate
+builder workspace limit (up to 1 GiB) is not a cap on total runtime GPU memory.
 A30 has 24 GB when exposed as a full GPU; a MIG slice can be smaller.
 
 Shared training/benchmark settings live in `scripts/pruning/config.py`.

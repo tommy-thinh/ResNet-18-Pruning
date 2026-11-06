@@ -53,12 +53,19 @@ slots. Every independent training run resets optimizer and Dropout generator sta
 - [Validation checkpoint selection](https://keras.io/api/callbacks/model_checkpoint/)
 - [Persistent weight constraints](https://keras.io/api/layers/constraints/)
 - [GPU 0 selection and explicit device placement](https://www.tensorflow.org/guide/gpu)
+- [On-demand GPU memory growth](https://www.tensorflow.org/api_docs/python/tf/config/experimental/set_memory_growth)
 
 Training scopes model/optimizer creation, training and validation with
 `tf.device(config.device)`. Evaluation/inference uses the same selected placement.
 The default is `/GPU:0`; explicit CPU execution uses `/CPU:0`. Device availability
 is checked so a GPU request cannot silently become a CPU benchmark. The notebook
 and CLI configure GPU visibility before model construction.
+
+The shared device setup enables TensorFlow memory growth by default, before GPU
+initialization. Training, fine-tuning and evaluation therefore allocate VRAM as
+needed for their model and batch size, rather than sharing a fixed 4 GB cap.
+An explicit `--gpu-memory-mb` uses a logical-device hard limit instead; TensorFlow
+does not support combining memory growth with configured virtual devices.
 
 Structured channels share a survivor set within each residual stage. Stem/stage-2
 identity connections, transition projections, BN arrays and downstream Dense inputs

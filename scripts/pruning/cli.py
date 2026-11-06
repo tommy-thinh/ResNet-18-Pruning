@@ -12,7 +12,8 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", choices=("cpu", "gpu:0", "gpu"), default="gpu:0",
                         help="Execution device; gpu:0 is the default (gpu is an alias)")
-    parser.add_argument("--gpu-memory-mb", type=int, default=4096)
+    parser.add_argument("--gpu-memory-mb", type=int,
+                        help="Optional TensorFlow GPU memory cap in MB; default: grow as needed")
     parser.add_argument("--batch-size", type=int, default=16)
 
 
