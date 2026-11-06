@@ -1,6 +1,6 @@
 """Discover an iterative lottery ticket and train its random-initialization control."""
 import argparse
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from pathlib import Path
 import sys
 
@@ -39,7 +39,7 @@ def discover(args, bench) -> dict:
         raise ValueError("Lottery Ticket comparisons require the matching training baseline JSON.")
     if reference["seed"] != args.seed or reference["initialization_sha256"] != checksum(args.initialization):
         raise ValueError("Initialization does not match the baseline's checksum/seed.")
-    config = TrainingConfig(**reference["training"]["config"])
+    config = replace(TrainingConfig(**reference["training"]["config"]), device=bench.device)
     if ((args.epochs is not None and args.epochs != config.epochs)
             or (args.learning_rate is not None and args.learning_rate != config.learning_rate)):
         raise ValueError("Lottery Ticket training must use the baseline's training budget and learning rate.")

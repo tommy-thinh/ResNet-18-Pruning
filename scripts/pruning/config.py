@@ -15,8 +15,11 @@ class TrainingConfig:
     lr_patience: int = 10
     lr_factor: float = 0.5
     min_lr: float = 1e-5
+    device: str = "/GPU:0"
 
     def __post_init__(self) -> None:
+        if self.device not in ("/GPU:0", "/CPU:0"):
+            raise ValueError("Use /GPU:0 or /CPU:0.")
         if self.epochs < 1 or self.batch_size < 1:
             raise ValueError("Epochs and batch size must be positive.")
         if not math.isfinite(self.learning_rate) or self.learning_rate <= 0:
@@ -34,8 +37,10 @@ class BenchmarkConfig:
     batch_size: int = 16
     warmup: int = 10
     repeats: int = 50
-    device: str = "/CPU:0"
+    device: str = "/GPU:0"
 
     def __post_init__(self) -> None:
+        if self.device not in ("/GPU:0", "/CPU:0"):
+            raise ValueError("Use /GPU:0 or /CPU:0.")
         if self.batch_size < 1 or self.warmup < 1 or self.repeats < 2:
             raise ValueError("Use batch_size >= 1, warmup >= 1, repeats >= 2.")

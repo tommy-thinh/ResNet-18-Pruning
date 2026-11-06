@@ -34,11 +34,23 @@ nvidia-smi
 python -c "import tensorflow as tf; print(tf.config.list_physical_devices('GPU'))"
 ```
 
-Commands use the first visible GPU. Select a physical GPU with
-`CUDA_VISIBLE_DEVICES` on Linux, or pass `--device cpu` for CPU execution.
+Training, fine-tuning, validation and benchmarking default explicitly to GPU 0
+(`--device gpu:0`, TensorFlow `/GPU:0`). `gpu` remains an alias for `gpu:0`.
+GPU 0 means the first GPU visible to TensorFlow; `CUDA_VISIBLE_DEVICES` can remap
+physical indices. Pass `--device cpu` for CPU execution. GPU requests fail if no
+GPU is available instead of silently falling back to CPU.
 The default TensorFlow memory limit is 4096 MB, configurable with
 `--gpu-memory-mb`. TensorRT uses additional workspace (up to 1 GiB).
 A30 has 24 GB when exposed as a full GPU; a MIG slice can be smaller.
+
+Shared training/benchmark settings live in `scripts/pruning/config.py`.
+The scripts' CLI defaults/flags supply epochs, learning rate, batch size and device;
+use `--epochs`, `--learning-rate`, `--batch-size` and `--device` to override a run.
+Other training defaults, such as momentum and weight decay, come from the config.
+File edits affect the next process, not training already running. Lottery Ticket
+training keeps the saved baseline budget while using the selected current device.
+In the notebook, GPU 0 is configured in the setup cell; change that cell to `cpu`
+for CPU execution and restart the kernel before changing device visibility.
 
 ## Train or reuse the baseline
 
@@ -161,6 +173,8 @@ latency, throughput and allocator peak where supported. Fine-tuned experiments
 have `before`, `after` and training curves; LTH has `dense`, `original`, `random`
 and discovery histories. There are no CSV tables, environment dumps or automatic
 reports. The `loss` metric is BCE; MACs count Conv/Dense only (FLOPs = 2 x MACs).
+Runtime descriptions include the exact device placement (`/GPU:0` or `/CPU:0`)
+and the hardware name.
 `dense_runtime` preserves the saved baseline's measurement conditions. Compare
 latencies only when GPU/runtime/precision/batch size match the current run;
 reusing saved accuracy does not turn a different GPU's timings into A30 timings.

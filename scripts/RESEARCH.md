@@ -52,6 +52,13 @@ slots. Every independent training run resets optimizer and Dropout generator sta
 - [Keras SGD and EMA](https://keras.io/api/optimizers/sgd/)
 - [Validation checkpoint selection](https://keras.io/api/callbacks/model_checkpoint/)
 - [Persistent weight constraints](https://keras.io/api/layers/constraints/)
+- [GPU 0 selection and explicit device placement](https://www.tensorflow.org/guide/gpu)
+
+Training scopes model/optimizer creation, training and validation with
+`tf.device(config.device)`. Evaluation/inference uses the same selected placement.
+The default is `/GPU:0`; explicit CPU execution uses `/CPU:0`. Device availability
+is checked so a GPU request cannot silently become a CPU benchmark. The notebook
+and CLI configure GPU visibility before model construction.
 
 Structured channels share a survivor set within each residual stage. Stem/stage-2
 identity connections, transition projections, BN arrays and downstream Dense inputs

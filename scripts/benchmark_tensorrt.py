@@ -20,8 +20,8 @@ def parser() -> argparse.ArgumentParser:
 
 def main() -> None:
     args = parser().parse_args()
-    if args.device != "gpu":
-        raise ValueError("TensorRT requires --device gpu.")
+    if args.device == "cpu":
+        raise ValueError("TensorRT requires --device gpu:0.")
     bench = prepare(args)
     from scripts.pruning.inference import tensorrt_comparison
     result = tensorrt_comparison(args.dense_onnx, args.sparse_onnx, args.data_dir / "test.pt", args.model_dir, bench)

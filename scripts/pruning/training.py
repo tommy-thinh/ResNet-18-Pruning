@@ -4,10 +4,12 @@ from pathlib import Path
 import time
 
 import numpy as np
+import tensorflow as tf
 from tensorflow import keras
 
 from .config import TrainingConfig
 from .data import Batches
+from .device import require_device
 from .masks import apply_masks, assert_masks
 from .model import compile_model, load_model, set_seed
 
@@ -53,6 +55,7 @@ def save_initialization(model: keras.Model, directory: Path) -> Path:
 
 def train(model: keras.Model, train_data: tuple, val_data: tuple, config: TrainingConfig,
           directory: Path, *, seed: int, masks: dict | None = None) -> tuple[keras.Model, dict]:
+    require_device(config.device)
     set_seed(seed)
 
     def clone_layer(layer):
@@ -61,16 +64,19 @@ def train(model: keras.Model, train_data: tuple, val_data: tuple, config: Traini
             settings["seed"] = seed
         return layer.__class__.from_config(settings)
 
-    fresh = keras.models.clone_model(model, clone_function=clone_layer)
-    fresh.set_weights(model.get_weights())
-    model = fresh
-    if masks:
-        apply_masks(model, masks)
-    compile_model(model, config)
     start = time.perf_counter()
-    history = model.fit(Batches(*train_data, config.batch_size, shuffle=True, seed=seed),
-        validation_data=Batches(*val_data, config.batch_size), epochs=config.epochs,
-        callbacks=training_callbacks(directory, config, masks), verbose=2, shuffle=False)
+    # Scope variable/optimizer creation and both train/validation steps together.
+    # https://www.tensorflow.org/guide/gpu#manual_device_placement
+    with tf.device(config.device):
+        fresh = keras.models.clone_model(model, clone_function=clone_layer)
+        fresh.set_weights(model.get_weights())
+        model = fresh
+        if masks:
+            apply_masks(model, masks)
+        compile_model(model, config)
+        history = model.fit(Batches(*train_data, config.batch_size, shuffle=True, seed=seed),
+            validation_data=Batches(*val_data, config.batch_size), epochs=config.epochs,
+            callbacks=training_callbacks(directory, config, masks), verbose=2, shuffle=False)
     values = {key: [float(v) for v in history.history[key]] for key in (
         "loss", "val_loss", "exact_match_accuracy", "val_exact_match_accuracy", "learning_rate")
         if key in history.history}
@@ -84,10 +90,11 @@ def train(model: keras.Model, train_data: tuple, val_data: tuple, config: Traini
               "seconds": time.perf_counter() - start, "history": values}
     # Reload the raw best epoch after fit() finalizes EMA; do not evaluate the
     # unvalidated final EMA average. Inference-only saves make sizes comparable.
-    best = load_model(directory / "best.keras")
-    if masks:
-        assert_masks(best, masks)
-    best.save(directory / "model.keras")
+    with tf.device(config.device):
+        best = load_model(directory / "best.keras")
+        if masks:
+            assert_masks(best, masks)
+        best.save(directory / "model.keras")
     return best, record
 
 
