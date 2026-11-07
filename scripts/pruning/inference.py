@@ -2,11 +2,10 @@
 from pathlib import Path
 import re
 import subprocess
-import time
 
 import numpy as np
 
-from .benchmark import runtime_info, timing_summary
+from .benchmark import runtime_info
 from .config import BenchmarkConfig
 from .data import load_data_pt, preprocess
 
@@ -149,9 +148,7 @@ def _accuracy(runner, input_name: str, x, y, batch: int) -> dict:
 
 
 def tensorrt_comparison(dense: Path, sparse: Path, test_path: Path, model_dir: Path,
-                        config: BenchmarkConfig) -> dict:
-    import tensorrt as trt
-    from polygraphy.backend.trt import TrtRunner
+                        config: BenchmarkConfig, *, cuda_graph=True, profile=False) -> dict:
 
     sparse_check = inspect_onnx_sparsity(sparse)
     convs = [l for l in sparse_check["layers"] if l.get("op") == "Conv" and l["eligible"]]
@@ -168,26 +165,78 @@ def tensorrt_comparison(dense: Path, sparse: Path, test_path: Path, model_dir: P
         engine_path = model_dir / f"{label}.engine"
         engine, runtime, logger, messages = _engine(path, engine_path, enable_sparse, config.batch_size,
                                                      model_dir / f"{label}-builder.log")
-        with TrtRunner(engine) as runner:
-            name = next(iter(runner.get_input_metadata()))
-            accuracy = _accuracy(runner, name, x, y, config.batch_size)
-            inputs = {name: preprocess(x[:config.batch_size])}
-            for _ in range(config.warmup):
-                runner.infer(inputs)
-            samples = []
-            for _ in range(config.repeats):
-                start = time.perf_counter_ns()
-                runner.infer(inputs)  # Polygraphy copies outputs to host and synchronizes its stream.
-                samples.append((time.perf_counter_ns() - start) / 1e6)
-        chosen_counts = re.findall(r"\(Sparsity\) Chose (\d+) layer", "\n".join(messages))
-        measurements[label] = {**accuracy, "model_mb": engine_path.stat().st_size / 1024**2,
-                               "latency": timing_summary(samples, config.batch_size),
-                               "sparse_layers_selected": int(chosen_counts[-1]) if chosen_counts else None}
-        del runner, engine, runtime, logger
+        try:
+            measurements[label] = _measure_engine(engine, x, y, config, cuda_graph=cuda_graph, profile=profile)
+            chosen_counts = re.findall(r"^.*?: \(Sparsity\) Chose (\d+) layer", "\n".join(messages), re.MULTILINE)
+            measurements[label].update(model_mb=engine_path.stat().st_size / 1024**2,
+                sparse_layers_selected=int(chosen_counts[-1]) if chosen_counts else None)
+        finally:
+            del engine, runtime, logger
     dense_result, sparse_result = measurements["dense"], measurements["sparse"]
-    controlled_ratio = measurements["sparse_dense_tactics"]["latency"]["median_ms"] / sparse_result["latency"]["median_ms"]
-    return {"method": "tensorrt", "runtime": {**runtime_info(config), "framework": f"TensorRT {trt.__version__}",
-                                               "precision": "fp16-enabled"},
+    controlled_ratio = measurements["sparse_dense_tactics"]["gpu_latency"]["median_ms"] / sparse_result["gpu_latency"]["median_ms"]
+    return {"method": "tensorrt", "runtime": _trt_runtime(config, cuda_graph),
             "dense_onnx": str(dense), "sparse_onnx": str(sparse), **measurements,
             "sparse_tactic_speedup": controlled_ratio,
+            "speedup_metric": "gpu_latency.median_ms",
             "exact_match_delta": sparse_result["exact_match_accuracy"] - dense_result["exact_match_accuracy"]}
+
+
+def _trt_runtime(config, cuda_graph) -> dict:
+    import tensorrt as trt
+    return {**runtime_info(config), "framework": f"TensorRT {trt.__version__}",
+            "precision": "fp16-enabled", "cuda_graph": cuda_graph,
+            "warmup": config.warmup, "repeats": config.repeats}
+
+
+def _measure_engine(engine, x, y, config, *, cuda_graph, profile) -> dict:
+    from polygraphy.backend.trt import TrtRunner
+    from .tensorrt_runtime import measure_latency
+
+    with TrtRunner(engine) as runner:
+        names = list(runner.get_input_metadata())
+        if len(names) != 1:
+            raise ValueError("Expected a single image input.")
+        name = names[0]
+        target = (config.batch_size, 64, 64, 3)
+        shape = tuple(engine.get_tensor_shape(name))
+        if any(actual != -1 and actual != wanted for actual, wanted in zip(shape, target)) or len(shape) != 4:
+            raise ValueError(f"Engine input shape {shape} does not support requested shape {target}.")
+        if -1 in shape:
+            minimum, _, maximum = engine.get_tensor_profile_shape(name, 0)
+            if any(not lo <= value <= hi for lo, value, hi in zip(minimum, target, maximum)):
+                raise ValueError(f"Requested shape {target} is outside engine profile {tuple(minimum)}..{tuple(maximum)}.")
+        if len(x) < config.batch_size:
+            raise ValueError("Test set is smaller than the inference batch size.")
+        accuracy = _accuracy(runner, name, x, y, config.batch_size)
+        return {**accuracy, **measure_latency(runner, preprocess(x[:config.batch_size]), config,
+                                             cuda_graph=cuda_graph, profile=profile)}
+
+
+def benchmark_saved_engine(path: Path, test_path: Path, config: BenchmarkConfig, *, cuda_graph=True, profile=False) -> dict:
+    import tensorrt as trt
+    from .storage import checksum
+
+    logger = trt.Logger(trt.Logger.WARNING)
+    runtime = trt.Runtime(logger)
+    engine = runtime.deserialize_cuda_engine(path.read_bytes())
+    if engine is None:
+        raise RuntimeError("Could not load the TensorRT engine; use its original GPU/runtime or rebuild from ONNX.")
+    try:
+        x, y, _ = load_data_pt(test_path, normalized=False)
+        metrics = _measure_engine(engine, x, y, config, cuda_graph=cuda_graph, profile=profile)
+        return {"method": "tensorrt-engine", "engine": str(path), "engine_sha256": checksum(path),
+                "runtime": _trt_runtime(config, cuda_graph), "metrics": metrics}
+    finally:
+        del engine, runtime, logger
+
+
+def benchmark_onnx(path: Path, test_path: Path, model_dir: Path, config: BenchmarkConfig, *, cuda_graph=True, profile=False) -> dict:
+    engine_path = model_dir / "model.engine"
+    engine, runtime, logger, _ = _engine(path, engine_path, False, config.batch_size, model_dir / "builder.log")
+    try:
+        x, y, _ = load_data_pt(test_path, normalized=False)
+        metrics = _measure_engine(engine, x, y, config, cuda_graph=cuda_graph, profile=profile)
+        return {"method": "tensorrt-model", "onnx": str(path), "engine": str(engine_path),
+                "runtime": _trt_runtime(config, cuda_graph), "metrics": metrics}
+    finally:
+        del engine, runtime, logger

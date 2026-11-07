@@ -19,9 +19,16 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--batch-size", type=int, default=64)
 
 
-def add_benchmark_arguments(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--warmup", type=int, default=10)
-    parser.add_argument("--repeats", type=int, default=50)
+def add_benchmark_arguments(parser: argparse.ArgumentParser, *, warmup=10, repeats=50) -> None:
+    parser.add_argument("--warmup", type=int, default=warmup)
+    parser.add_argument("--repeats", type=int, default=repeats)
+
+
+def add_tensorrt_arguments(parser: argparse.ArgumentParser) -> None:
+    add_benchmark_arguments(parser, warmup=100, repeats=1000)
+    parser.add_argument("--cuda-graph", action=argparse.BooleanOptionalAction, default=True,
+                        help="Use CUDA graph replay for resident-buffer GPU timing (default: enabled)")
+    parser.add_argument("--profile", action="store_true", help="Also record per-layer timings in the same JSON")
 
 
 def add_training_arguments(parser: argparse.ArgumentParser, *, epochs=100, learning_rate=0.01) -> None:

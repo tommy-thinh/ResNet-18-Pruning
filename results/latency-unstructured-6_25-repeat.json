@@ -1,0 +1,33 @@
+{
+  "method": "tensorrt-engine",
+  "engine": "models/latency-unstructured-6_25/model.engine",
+  "engine_sha256": "4869c8ff7c0b57338a655d160e14fa153d55ac59e60f8eff3f864119298f4d82",
+  "runtime": {
+    "framework": "TensorRT 10.13.3.9",
+    "device": "/GPU:0",
+    "hardware": "NVIDIA A30",
+    "precision": "fp16-enabled",
+    "batch_size": 64,
+    "cuda_graph": true,
+    "warmup": 200,
+    "repeats": 5000
+  },
+  "metrics": {
+    "binary_accuracy": 0.9767799973487854,
+    "precision": 0.9795244932174683,
+    "recall": 0.9757583737373352,
+    "exact_match_accuracy": 0.8217,
+    "loss": 0.14526490414738655,
+    "gpu_latency": {
+      "median_ms": 0.4546560049057007,
+      "p95_ms": 0.4567039906978607,
+      "images_per_second": 140653.93787541654
+    },
+    "host_latency": {
+      "median_ms": 1.2164365,
+      "p95_ms": 1.24091485,
+      "images_per_second": 52394.96521479922
+    }
+  },
+  "status": "completed"
+}

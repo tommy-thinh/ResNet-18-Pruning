@@ -68,7 +68,7 @@ The notebook reads `TrainingConfig().device` in its setup cell; set `device = 0`
 
 The training, fine-tuning and benchmarking examples below explicitly use
 `--batch-size 64 --device 0`. Change the device to `1` if needed.
-If `--batch-size` is omitted, that command defaults to **16**. It does not inherit
+If `--batch-size` is omitted, that command defaults to **64**. It does not inherit
 the batch size from an earlier command, the trained checkpoint or the baseline JSON.
 The same flag controls fine-tuning, validation and before/after benchmarking within
 one pruning command; passing it only to baseline training or benchmarking is not enough.
@@ -89,7 +89,7 @@ python scripts/train_baseline.py --batch-size 64 --device 0 --model-dir models/d
 ```
 
 Use one entry point for a given output path. Code defaults remain seed 42, batch
-size 16, at most 200 epochs, SGD LR 0.1, momentum 0.9, weight decay 0.005, EMA,
+size 64, at most 200 epochs, SGD LR 0.1, momentum 0.9, weight decay 0.005, EMA,
 BCE, EarlyStopping and ReduceLROnPlateau. The CLI example explicitly overrides
 batch size to 64. For a matching notebook run, also set `TrainingConfig.batch_size`
 to 64. Override epochs/LR explicitly when needed. Initialization is saved before training.
@@ -138,7 +138,7 @@ python scripts/prune_channels.py --checkpoint models/dense/model.keras --remove 
 ```
 
 Each command loads the supplied dense checkpoint independently, records immediate
-pruning performance, fine-tunes for at most 30 epochs at LR 0.01, and records the
+pruning performance, fine-tunes for at most 100 epochs at LR 0.01, and records the
 selected model's performance. Override with `--epochs` and `--learning-rate`.
 As written, each command uses batch size 64 for both fine-tuning and benchmarking.
 Choose another `--density` or `--remove` and output filename for each comparison.
@@ -177,17 +177,75 @@ or re-evaluating that model.
 
 ## Export and measure A30 sparse inference
 
+### Remeasure the engines you already have (no training, export or rebuild)
+
+Run each command separately on the same idle GPU. Each writes one new JSON:
+
+```bash
+python scripts/benchmark_engine.py --engine models/tensorrt-a30/dense.engine --batch-size 64 --device 0 --warmup 200 --repeats 5000 --profile --output results/latency-dense.json
+python scripts/benchmark_engine.py --engine models/tensorrt-a30/sparse_dense_tactics.engine --batch-size 64 --device 0 --warmup 200 --repeats 5000 --profile --output results/latency-semi24-dense.json
+python scripts/benchmark_engine.py --engine models/tensorrt-a30/sparse.engine --batch-size 64 --device 0 --warmup 200 --repeats 5000 --profile --output results/latency-semi24-sparse.json
+```
+
+`metrics.gpu_latency` is the main latency metric: CUDA-event timing of TensorRT
+execution with inputs/outputs resident on the GPU. CUDA graph replay is enabled
+by default to reduce CPU kernel-launch gaps. `metrics.host_latency` separately
+measures synchronous host input/output inference, including H2D/D2H transfers and
+Python/runner overhead; it does not use graph replay. Both contain median/p95
+milliseconds **per batch**, plus images/second. Preprocessing is outside both timers.
+NVTX/debug tracing is disabled during timing. `--profile` adds `layer_profile`
+to the same JSON using a separate, untimed profiling pass (up to 100 iterations).
+Those profiler timings must not replace the unprofiled latency measurements.
+
+Compare `latency-semi24-dense` against `latency-semi24-sparse` to isolate sparse
+tactics on identical weights. Compare the original dense engine against each
+pruned engine to measure deployment speedup. Speedup = dense median / pruned
+median, using the same latency field, batch, GPU and CUDA graph setting.
+`--no-cuda-graph` measures ordinary resident-buffer enqueue instead; use it for
+**all** compared models, never just one. Capture errors fail explicitly, without
+silently switching measurement methods. An incompatible batch/profile fails
+before evaluation; the existing engines were built for batch 64.
+
+### Benchmark each unstructured model with the same TensorRT FP16 runtime
+
+These commands export the existing trained checkpoint, check ONNX parity, build
+one dense-tactic FP16 engine and benchmark it. They do not retrain or modify the
+source checkpoint. Offline export/parity runs in an isolated CPU subprocess so
+tf2onnx's TF1 sessions cannot initialize unselected GPUs; engine building and all
+inference measurements use the requested A30. New exports/engines are stored
+under `models/<output stem>/`.
+
+```bash
+python scripts/benchmark_tensorrt_model.py --checkpoint models/unstructured-75/model.keras --batch-size 64 --device 0 --warmup 200 --repeats 5000 --profile --output results/latency-unstructured-75.json
+python scripts/benchmark_tensorrt_model.py --checkpoint models/unstructured-50/model.keras --batch-size 64 --device 0 --warmup 200 --repeats 5000 --profile --output results/latency-unstructured-50.json
+python scripts/benchmark_tensorrt_model.py --checkpoint models/unstructured-25/model.keras --batch-size 64 --device 0 --warmup 200 --repeats 5000 --profile --output results/latency-unstructured-25.json
+python scripts/benchmark_tensorrt_model.py --checkpoint models/unstructured-12_5/model.keras --batch-size 64 --device 0 --warmup 200 --repeats 5000 --profile --output results/latency-unstructured-12_5.json
+python scripts/benchmark_tensorrt_model.py --checkpoint models/unstructured-6_25/model.keras --batch-size 64 --device 0 --warmup 200 --repeats 5000 --profile --output results/latency-unstructured-6_25.json
+```
+
+The same script accepts `--onnx models/export-dense/model.onnx` instead of
+`--checkpoint` to skip export, and also supports compact channel-pruned checkpoints.
+Use `benchmark_engine.py --engine models/latency-unstructured-6_25/model.engine`
+with a fresh `--output` for subsequent timing runs without rebuilding.
+Arbitrary unstructured zeros do not enable 2:4 Tensor Core tactics or guarantee
+lower latency. File compression is not an inference-speed result.
+
+### Export or rebuild the matched dense/2:4 comparison when needed
+
 ```bash
 python scripts/export_onnx.py --checkpoint models/dense/model.keras --device 0 --output results/export-dense.json
 python scripts/export_onnx.py --checkpoint models/semi24/model.keras --device 0 --output results/export-semi24.json
 python scripts/benchmark_tensorrt.py --dense-onnx models/export-dense/model.onnx --sparse-onnx models/export-semi24/model.onnx --batch-size 64 --device 0 --output results/tensorrt-a30.json
+# Optional matched larger-batch experiment; never compare it against batch-64 timings:
+python scripts/benchmark_tensorrt.py --dense-onnx models/export-dense/model.onnx --sparse-onnx models/export-semi24/model.onnx --batch-size 256 --device 0 --warmup 200 --repeats 3000 --profile --output results/latency-semi24-batch256.json
 ```
 
 Export checks ONNX validity, numerical parity on 32 real examples, and sparsity
 with Polygraphy. TensorRT builds three comparable FP16-enabled engines: original
 dense weights, pruned weights with sparse tactics disabled, and the same pruned
 weights with sparse tactics enabled. It evaluates full-test accuracy and reports
-the selected sparse-layer count and same-weight latency ratio. Detailed engine
+the selected sparse-layer count and same-weight **GPU** latency ratio. The ratio's
+field is explicitly recorded as `speedup_metric: gpu_latency.median_ms`. Detailed engine
 logs and layer descriptions stay beside the engines under `models/`.
 
 Rebuild engines on the A30; existing engines are generally GPU/runtime-specific.
@@ -209,10 +267,13 @@ and the hardware name.
 latencies only when GPU/runtime/precision/batch size match the current run;
 reusing saved accuracy does not turn a different GPU's timings into A30 timings.
 
-Warmup and repetitions default to 10/50, adjustable with `--warmup`/`--repeats`.
+TensorFlow warmup/repetitions default to 10/50; TensorRT defaults to 100/1000,
+adjustable with `--warmup`/`--repeats`. The latency examples use 200/5000.
 TensorFlow timings use resident inputs and synchronize through host output
-materialization. TensorRT uses synchronized host input/output inference; compare
-dense/sparse TensorRT engines to isolate sparsity acceleration, not TF/TRT timings.
+materialization. TensorRT now reports separate `gpu_latency` and `host_latency`;
+old `latency` fields in existing TensorRT JSONs are host-input/output measurements.
+Do not compare the old host timings directly against new GPU-only timings.
+Compare dense/sparse TensorRT engines to isolate sparsity acceleration, not TF/TRT timings.
 Zero-valued dense Keras tensors do not automatically execute faster.
 
 Output paths and nonempty model directories are protected against overwriting.
@@ -225,7 +286,8 @@ checkpoint; changing fine-tuning batch size does not require retraining it.
 
 Each script owns its argument parser and experiment implementation:
 `train_baseline.py`, `benchmark.py`, `prune_unstructured.py`, `prune_2to4.py`,
-`prune_channels.py`, `lottery_ticket.py`, `export_onnx.py` and `benchmark_tensorrt.py`.
+`prune_channels.py`, `lottery_ticket.py`, `export_onnx.py`, `benchmark_tensorrt.py`,
+`benchmark_engine.py` and `benchmark_tensorrt_model.py`.
 `pruning/` shares model, data, mask, channel, training, evaluation and runtime helpers.
 `requirements.txt` in this directory adds only optional inference dependencies.
 Keep this README as the single command reference when adding or changing experiments.

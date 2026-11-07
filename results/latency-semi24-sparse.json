@@ -1,0 +1,159 @@
+{
+  "method": "tensorrt-engine",
+  "engine": "models/tensorrt-a30/sparse.engine",
+  "engine_sha256": "246ac0d9a029033b8dd972740b8e97744cfe612311f39d228cfddfe906c3e747",
+  "runtime": {
+    "framework": "TensorRT 10.13.3.9",
+    "device": "/GPU:0",
+    "hardware": "NVIDIA A30",
+    "precision": "fp16-enabled",
+    "batch_size": 64,
+    "cuda_graph": true,
+    "warmup": 200,
+    "repeats": 5000
+  },
+  "metrics": {
+    "binary_accuracy": 0.9766998887062073,
+    "precision": 0.9795768857002258,
+    "recall": 0.9755468964576721,
+    "exact_match_accuracy": 0.8208,
+    "loss": 0.14563207504749298,
+    "gpu_latency": {
+      "median_ms": 0.4546560049057007,
+      "p95_ms": 0.4556800127029419,
+      "images_per_second": 140873.4511502262
+    },
+    "host_latency": {
+      "median_ms": 1.189133,
+      "p95_ms": 1.218358,
+      "images_per_second": 53210.08308393642
+    },
+    "layer_profile": [
+      {
+        "name": "multi_label_resnet18_1/bn_conv1_1/batchnorm/mul_1__6",
+        "mean_ms": 0.02205695988610387
+      },
+      {
+        "name": "Reformatting CopyNode for Input Tensor 0 to Conv__90 + multi_label_resnet18_1/conv1_relu_1/Relu",
+        "mean_ms": 0.02232319977134466
+      },
+      {
+        "name": "Conv__90 + multi_label_resnet18_1/conv1_relu_1/Relu",
+        "mean_ms": 0.053975039608776566
+      },
+      {
+        "name": "multi_label_resnet18_1/pool1_1/MaxPool2d",
+        "mean_ms": 0.01530879968777299
+      },
+      {
+        "name": "Reformatting CopyNode for Output Tensor 0 to multi_label_resnet18_1/pool1_1/MaxPool2d",
+        "mean_ms": 0.0
+      },
+      {
+        "name": "Conv__96 + multi_label_resnet18_1/conv2_block1_relu1_1/Relu",
+        "mean_ms": 0.028375040292739868
+      },
+      {
+        "name": "Conv__98 + multi_label_resnet18_1/conv2_block1_add_1/Add + multi_label_resnet18_1/conv2_block1_out_relu_1/Relu",
+        "mean_ms": 0.027924480140209196
+      },
+      {
+        "name": "Conv__104 + multi_label_resnet18_1/conv2_block2_relu1_1/Relu",
+        "mean_ms": 0.027688960060477257
+      },
+      {
+        "name": "Conv__106 + multi_label_resnet18_1/conv2_block2_add_1/Add + multi_label_resnet18_1/conv2_block2_out_relu_1/Relu",
+        "mean_ms": 0.027586560025811196
+      },
+      {
+        "name": "Conv__126 + multi_label_resnet18_1/conv3_block1_relu1_1/Relu",
+        "mean_ms": 0.01613823987543583
+      },
+      {
+        "name": "Conv__128",
+        "mean_ms": 0.019619839284569025
+      },
+      {
+        "name": "Conv__116 + multi_label_resnet18_1/conv3_block1_add_1/Add + multi_label_resnet18_1/conv3_block1_out_relu_1/Relu",
+        "mean_ms": 0.011325440108776093
+      },
+      {
+        "name": "Conv__130 + multi_label_resnet18_1/conv3_block2_relu1_1/Relu",
+        "mean_ms": 0.01985535927116871
+      },
+      {
+        "name": "Conv__132 + multi_label_resnet18_1/conv3_block2_add_1/Add + multi_label_resnet18_1/conv3_block2_out_relu_1/Relu",
+        "mean_ms": 0.02139135979115963
+      },
+      {
+        "name": "Conv__152 + multi_label_resnet18_1/conv4_block1_relu1_1/Relu",
+        "mean_ms": 0.019486719239503146
+      },
+      {
+        "name": "Reformatting CopyNode for Input Tensor 0 to Conv__154",
+        "mean_ms": 0.0
+      },
+      {
+        "name": "Conv__154",
+        "mean_ms": 0.02755584001541138
+      },
+      {
+        "name": "Reformatting CopyNode for Input Tensor 1 to Conv__142 + multi_label_resnet18_1/conv4_block1_add_1/Add + multi_label_resnet18_1/conv4_block1_out_relu_1/Relu",
+        "mean_ms": 0.0
+      },
+      {
+        "name": "Conv__142 + multi_label_resnet18_1/conv4_block1_add_1/Add + multi_label_resnet18_1/conv4_block1_out_relu_1/Relu",
+        "mean_ms": 0.010147839849814773
+      },
+      {
+        "name": "Conv__156 + multi_label_resnet18_1/conv4_block2_relu1_1/Relu",
+        "mean_ms": 0.0284262403100729
+      },
+      {
+        "name": "Conv__158 + multi_label_resnet18_1/conv4_block2_add_1/Add + multi_label_resnet18_1/conv4_block2_out_relu_1/Relu",
+        "mean_ms": 0.025456639677286147
+      },
+      {
+        "name": "Conv__178 + multi_label_resnet18_1/conv5_block1_relu1_1/Relu",
+        "mean_ms": 0.02226176008582115
+      },
+      {
+        "name": "Conv__180",
+        "mean_ms": 0.03341312013566494
+      },
+      {
+        "name": "Conv__168 + multi_label_resnet18_1/conv5_block1_add_1/Add + multi_label_resnet18_1/conv5_block1_out_relu_1/Relu",
+        "mean_ms": 0.0105062398314476
+      },
+      {
+        "name": "Reformatting CopyNode for Output Tensor 0 to Conv__168 + multi_label_resnet18_1/conv5_block1_add_1/Add + multi_label_resnet18_1/conv5_block1_out_relu_1/Relu",
+        "mean_ms": 0.0
+      },
+      {
+        "name": "Conv__182 + multi_label_resnet18_1/conv5_block2_relu1_1/Relu",
+        "mean_ms": 0.03324928008019924
+      },
+      {
+        "name": "Conv__184 + multi_label_resnet18_1/conv5_block2_add_1/Add + multi_label_resnet18_1/conv5_block2_out_relu_1/Relu",
+        "mean_ms": 0.0318463996052742
+      },
+      {
+        "name": "multi_label_resnet18_1/avg_pool_1/Mean",
+        "mean_ms": 0.006184960189275443
+      },
+      {
+        "name": "multi_label_resnet18_1/fc1_1/MatMul_myl28_0",
+        "mean_ms": 0.00910336023196578
+      },
+      {
+        "name": "multi_label_resnet18_1/predictions_1/MatMul_myl28_1",
+        "mean_ms": 0.008673280142247677
+      },
+      {
+        "name": "__myl_SigmCast_myl28_2",
+        "mean_ms": 0.005621760040521622
+      }
+    ]
+  },
+  "status": "completed"
+}
