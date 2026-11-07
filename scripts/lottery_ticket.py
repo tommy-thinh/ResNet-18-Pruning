@@ -20,43 +20,72 @@ def parser() -> argparse.ArgumentParser:
     command.add_argument("--initialization", type=Path, required=True)
     command.add_argument("--rounds", type=int, required=True)
     command.add_argument("--prune-rate", type=float, default=0.2)
+    command.add_argument("--check-only", action="store_true", help="Validate inputs without starting training")
     return command
 
 
-def discover(args, bench) -> dict:
+def resolve_training_config(reference, args, device):
+    from scripts.pruning.config import TrainingConfig
+
+    saved = reference.get("training", {}).get("config")
+    if saved is None:
+        if args.epochs is None or args.learning_rate is None:
+            raise ValueError("Baseline contains metrics only: explicitly pass --epochs and --learning-rate for LTH.")
+        return TrainingConfig(epochs=args.epochs, learning_rate=args.learning_rate,
+                              batch_size=args.batch_size, device=device)
+    config = replace(TrainingConfig(**saved), device=device)
+    if ((args.epochs is not None and args.epochs != config.epochs)
+            or (args.learning_rate is not None and args.learning_rate != config.learning_rate)):
+        raise ValueError("Lottery Ticket training must use the baseline's training budget and learning rate.")
+    if args.batch_size != config.batch_size:
+        raise ValueError("Lottery Ticket batch size must match the baseline.")
+    return config
+
+
+def discover(args, bench) -> dict | None:
     import numpy as np
     from tensorflow import keras
     from scripts.pruning.benchmark import evaluate_and_benchmark, runtime_info
-    from scripts.pruning.config import TrainingConfig
-    from scripts.pruning.masks import eligible_layers, magnitude_masks, save_masks
+    from scripts.pruning.masks import eligible_layers, magnitude_masks, model_masks, save_masks
     from scripts.pruning.model import load_model, set_seed
     from scripts.pruning.reference import load_baseline, load_splits
     from scripts.pruning.storage import checksum, write_json
     from scripts.pruning.training import random_control, reset_to_initialization, train
 
     reference = load_baseline(args.baseline, args.checkpoint)
-    if reference.get("method") != "baseline":
-        raise ValueError("Lottery Ticket comparisons require the matching training baseline JSON.")
-    if reference["seed"] != args.seed or reference["initialization_sha256"] != checksum(args.initialization):
+    initialization_hash = checksum(args.initialization)
+    if reference["seed"] != args.seed or (reference.get("initialization_sha256") is not None
+            and reference["initialization_sha256"] != initialization_hash):
         raise ValueError("Initialization does not match the baseline's checksum/seed.")
-    config = replace(TrainingConfig(**reference["training"]["config"]), device=bench.device)
-    if ((args.epochs is not None and args.epochs != config.epochs)
-            or (args.learning_rate is not None and args.learning_rate != config.learning_rate)):
-        raise ValueError("Lottery Ticket training must use the baseline's training budget and learning rate.")
-    if bench.batch_size != config.batch_size:
-        raise ValueError("Lottery Ticket batch size must match the baseline.")
+    if initialization_hash == reference["checkpoint_sha256"]:
+        raise ValueError("Initialization must not be the trained checkpoint.")
+    config = resolve_training_config(reference, args, bench.device)
     if args.rounds < 1 or not 0 < args.prune_rate < 1:
         raise ValueError("Use positive --rounds and a --prune-rate in (0,1).")
-    data = load_splits(args.data_dir)
     initial, current = load_model(args.initialization), load_model(args.checkpoint)
+    signature = lambda model: [(layer.name, type(layer).__name__, [tuple(w.shape) for w in layer.weights])
+                                for layer in model.layers]
+    if signature(initial) != signature(current) or model_masks(initial):
+        raise ValueError("Initialization must be an unmasked model matching the trained architecture.")
+    if all(np.array_equal(a, b) for a, b in zip(initial.get_weights(), current.get_weights())):
+        raise ValueError("Initialization contains the trained weights, not the original initialization.")
+    config_source = "baseline" if reference.get("training", {}).get("config") is not None else "explicit CLI and config defaults"
+    if getattr(args, "check_only", False):
+        for split in ("train", "val", "test"):
+            if not (args.data_dir / f"{split}.pt").is_file():
+                raise FileNotFoundError(f"Missing data split: {args.data_dir / (split + '.pt')}")
+        print(f"LTH inputs verified; training config source: {config_source}; epochs={config.epochs}, batch={config.batch_size}, LR={config.learning_rate}.")
+        return None
+    data = load_splits(args.data_dir)
     names = [layer.name for layer in eligible_layers(current, conv_only=True)
              if not layer.name.endswith("_proj_conv")]
     masks = {name: np.ones(current.get_layer(name).kernel.shape, dtype=bool) for name in names}
     result = {"method": "lth", "status": "incomplete", "seed": args.seed,
               "runtime": runtime_info(bench), "checkpoint": str(args.checkpoint),
+              "initialization": str(args.initialization), "initialization_sha256": initialization_hash,
               "baseline": str(args.baseline), "dense": reference["metrics"],
               "dense_runtime": reference["runtime"], "prune_rate": args.prune_rate,
-              "training_config": asdict(config), "rounds": []}
+              "training_config": asdict(config), "training_config_source": config_source, "rounds": []}
     for index in range(1, args.rounds + 1):
         directory = args.model_dir / f"round-{index}"
         directory.mkdir()
@@ -89,7 +118,9 @@ def discover(args, bench) -> dict:
 def main() -> None:
     args = parser().parse_args()
     bench = prepare(args)
-    save_result(args, discover(args, bench))
+    result = discover(args, bench)
+    if result is not None:
+        save_result(args, result)
 
 
 if __name__ == "__main__":

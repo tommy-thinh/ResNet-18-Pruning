@@ -156,7 +156,7 @@ dense graph with aligned residual/projection/BN channel indices.
 ## Lottery Ticket comparison
 
 ```bash
-python scripts/lottery_ticket.py --checkpoint models/dense/model.keras --initialization models/dense/initial.keras --baseline results/baseline.json --rounds 4 --batch-size 64 --device 0 --output results/lth-round4.json
+python scripts/lottery_ticket.py --checkpoint models/dense/model.keras --initialization models/dense/initial.keras --baseline results/baseline.json --rounds 4 --prune-rate 0.2 --epochs 200 --learning-rate 0.1 --batch-size 64 --device 0 --output results/lth-round4.json
 ```
 
 Each round removes 20% of surviving convolutional weights by default, resets all
@@ -166,10 +166,20 @@ and Dense kernels are excluded, following the paper's ResNet experiment.
 `--prune-rate` changes the per-round fraction. The final mask is also trained with
 a random initialization, using the same training budget, shuffle and Dropout seed.
 
-The baseline JSON verifies checkpoint/initialization checksums and supplies the
-reference training configuration. This example assumes the baseline was trained
-with batch size 64; use its actual training batch size if different. A mismatched
-batch size or incompatible explicit epoch/LR override is rejected. Discovery uses validation for selection; the
+The existing metrics-only `results/baseline.json` is accepted: no separate
+`baseline-training.json` is needed. In that case, explicitly pass `--epochs` and
+`--learning-rate`; batch size/seed and remaining settings come from the CLI/shared
+config. The example uses the original dense run's 200-epoch maximum, LR 0.1 and
+batch 64. No dense retraining or invented training history is needed. Checkpoint
+hash/seed and initialization architecture are checked; the initialization must
+not contain the trained weights. Its hash and training-config source are recorded
+in the LTH result. Without an original initialization hash, compatibility can be
+checked but historical lineage cannot be independently proved.
+
+If a training-generated baseline is supplied, its saved configuration and
+initialization hash are still enforced; incompatible overrides are rejected.
+Append `--check-only` to validate files/config without starting training or writing
+a result JSON. Discovery uses validation for selection; the
 original/random subnetworks are test-evaluated only at the requested final round.
 Histories for all discovery rounds are included in the one result JSON.
 The dense reference metrics are read from the baseline JSON, without retraining
