@@ -64,6 +64,19 @@ training keeps the saved baseline budget while using the selected current device
 The notebook reads `TrainingConfig().device` in its setup cell; set `device = 0`,
 `device = 1` or `device = "cpu"` in that class before starting a fresh kernel.
 
+### Batch size in CLI commands
+
+The training, fine-tuning and benchmarking examples below explicitly use
+`--batch-size 64 --device 0`. Change the device to `1` if needed.
+If `--batch-size` is omitted, that command defaults to **16**. It does not inherit
+the batch size from an earlier command, the trained checkpoint or the baseline JSON.
+The same flag controls fine-tuning, validation and before/after benchmarking within
+one pruning command; passing it only to baseline training or benchmarking is not enough.
+
+For 50,000 training images, batch size 16 gives 3,125 steps per epoch; batch size
+64 gives 782. The GPU startup memory budget is not the batch size. New flags only
+apply when starting a new process, not to a job already running.
+
 ## Train or reuse the baseline
 
 The notebook remains the interactive entry point. It uses the shared modules
@@ -72,13 +85,14 @@ under `scripts/pruning/` and produces the same baseline JSON as the CLI:
 ```bash
 jupyter notebook resnet-18.ipynb
 # Or train headlessly:
-python scripts/train_baseline.py --model-dir models/dense --output results/baseline.json
+python scripts/train_baseline.py --batch-size 64 --device 0 --model-dir models/dense --output results/baseline.json
 ```
 
-Use one entry point for a given output path. The reference settings remain seed
-42, batch size 16, at most 200 epochs, SGD LR 0.1, momentum 0.9, weight decay
-0.005, EMA enabled, BCE, EarlyStopping and ReduceLROnPlateau. Override epochs/LR
-explicitly when needed. The initialization is saved before compiling/training.
+Use one entry point for a given output path. Code defaults remain seed 42, batch
+size 16, at most 200 epochs, SGD LR 0.1, momentum 0.9, weight decay 0.005, EMA,
+BCE, EarlyStopping and ReduceLROnPlateau. The CLI example explicitly overrides
+batch size to 64. For a matching notebook run, also set `TrainingConfig.batch_size`
+to 64. Override epochs/LR explicitly when needed. Initialization is saved before training.
 
 `initial.keras` holds the original weights and BatchNorm state. `best.keras` is
 the raw best-validation epoch checkpoint, including optimizer state. After fit
@@ -91,7 +105,7 @@ reading unrelated training defaults. Training always receives an explicit config
 To benchmark an existing checkpoint without retraining:
 
 ```bash
-python scripts/benchmark.py --checkpoint models/dense/model.keras --output results/benchmark.json
+python scripts/benchmark.py --checkpoint models/dense/model.keras --batch-size 64 --device 0 --output results/benchmark.json
 ```
 
 Existing compatible `.keras` checkpoints can also be supplied. Lottery Ticket
@@ -109,23 +123,24 @@ not a prerequisite to repeat for every pruning experiment.
 
 ```bash
 # Global unstructured pruning: choose the density you want to evaluate.
-python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --density 0.75 --output results/unstructured-75.json
-python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --density 0.5 --output results/unstructured-50.json
-python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --density 0.25 --output results/unstructured-25.json
-python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --density 0.125 --output results/unstructured-12_5.json
-python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --density 0.0625 --output results/unstructured-6_25.json
+python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --density 0.75 --batch-size 64 --device 0 --output results/unstructured-75.json
+python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --density 0.5 --batch-size 64 --device 0 --output results/unstructured-50.json
+python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --density 0.25 --batch-size 64 --device 0 --output results/unstructured-25.json
+python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --density 0.125 --batch-size 64 --device 0 --output results/unstructured-12_5.json
+python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --density 0.0625 --batch-size 64 --device 0 --output results/unstructured-6_25.json
 
 # Hardware-aligned 2:4 sparsity.
-python scripts/prune_2to4.py --checkpoint models/dense/model.keras --output results/semi24.json
+python scripts/prune_2to4.py --checkpoint models/dense/model.keras --batch-size 64 --device 0 --output results/semi24.json
 
 # Compact channel-pruned models.
-python scripts/prune_channels.py --checkpoint models/dense/model.keras --remove 0.2 --output results/channels-20.json
-python scripts/prune_channels.py --checkpoint models/dense/model.keras --remove 0.4 --output results/channels-40.json
+python scripts/prune_channels.py --checkpoint models/dense/model.keras --remove 0.2 --batch-size 64 --device 0 --output results/channels-20.json
+python scripts/prune_channels.py --checkpoint models/dense/model.keras --remove 0.4 --batch-size 64 --device 0 --output results/channels-40.json
 ```
 
 Each command loads the supplied dense checkpoint independently, records immediate
 pruning performance, fine-tunes for at most 30 epochs at LR 0.01, and records the
 selected model's performance. Override with `--epochs` and `--learning-rate`.
+As written, each command uses batch size 64 for both fine-tuning and benchmarking.
 Choose another `--density` or `--remove` and output filename for each comparison.
 Unstructured pruning requires `0 < density < 1`; density 1 is rejected before any
 model loading or training. Each JSON reuses the dense metrics from the baseline
@@ -141,7 +156,7 @@ dense graph with aligned residual/projection/BN channel indices.
 ## Lottery Ticket comparison
 
 ```bash
-python scripts/lottery_ticket.py --checkpoint models/dense/model.keras --initialization models/dense/initial.keras --baseline results/baseline.json --rounds 4 --output results/lth-round4.json
+python scripts/lottery_ticket.py --checkpoint models/dense/model.keras --initialization models/dense/initial.keras --baseline results/baseline.json --rounds 4 --batch-size 64 --device 0 --output results/lth-round4.json
 ```
 
 Each round removes 20% of surviving convolutional weights by default, resets all
@@ -152,8 +167,9 @@ and Dense kernels are excluded, following the paper's ResNet experiment.
 a random initialization, using the same training budget, shuffle and Dropout seed.
 
 The baseline JSON verifies checkpoint/initialization checksums and supplies the
-reference training configuration. Keep batch size matched; incompatible explicit
-epoch/LR overrides are rejected. Discovery uses validation for selection; the
+reference training configuration. This example assumes the baseline was trained
+with batch size 64; use its actual training batch size if different. A mismatched
+batch size or incompatible explicit epoch/LR override is rejected. Discovery uses validation for selection; the
 original/random subnetworks are test-evaluated only at the requested final round.
 Histories for all discovery rounds are included in the one result JSON.
 The dense reference metrics are read from the baseline JSON, without retraining
@@ -162,9 +178,9 @@ or re-evaluating that model.
 ## Export and measure A30 sparse inference
 
 ```bash
-python scripts/export_onnx.py --checkpoint models/dense/model.keras --output results/export-dense.json
-python scripts/export_onnx.py --checkpoint models/semi24/model.keras --output results/export-semi24.json
-python scripts/benchmark_tensorrt.py --dense-onnx models/export-dense/model.onnx --sparse-onnx models/export-semi24/model.onnx --output results/tensorrt-a30.json
+python scripts/export_onnx.py --checkpoint models/dense/model.keras --device 0 --output results/export-dense.json
+python scripts/export_onnx.py --checkpoint models/semi24/model.keras --device 0 --output results/export-semi24.json
+python scripts/benchmark_tensorrt.py --dense-onnx models/export-dense/model.onnx --sparse-onnx models/export-semi24/model.onnx --batch-size 64 --device 0 --output results/tensorrt-a30.json
 ```
 
 Export checks ONNX validity, numerical parity on 32 real examples, and sparsity
@@ -203,6 +219,9 @@ Output paths and nonempty model directories are protected against overwriting.
 Intermediate pruning/LTH progress updates the same JSON with `status: incomplete`;
 successful commands finish with `status: completed`. To stop a foreground command,
 press Ctrl+C. Nothing starts another experiment afterward.
+To rerun an interrupted experiment with different flags, archive that experiment's
+JSON and model directory first, or choose fresh output paths. Keep the dense baseline
+checkpoint; changing fine-tuning batch size does not require retraining it.
 
 Each script owns its argument parser and experiment implementation:
 `train_baseline.py`, `benchmark.py`, `prune_unstructured.py`, `prune_2to4.py`,
