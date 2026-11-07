@@ -16,7 +16,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
                         help="GPU index (0, 1, ...), gpu:N, /GPU:N, or cpu; default: 0")
     parser.add_argument("--gpu-memory-mb", type=int,
                         help="Optional TensorFlow GPU memory cap in MB; default: grow as needed")
-    parser.add_argument("--batch-size", type=int, default=16)
+    parser.add_argument("--batch-size", type=int, default=64)
 
 
 def add_benchmark_arguments(parser: argparse.ArgumentParser) -> None:
@@ -24,7 +24,7 @@ def add_benchmark_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--repeats", type=int, default=50)
 
 
-def add_training_arguments(parser: argparse.ArgumentParser, *, epochs=30, learning_rate=0.01) -> None:
+def add_training_arguments(parser: argparse.ArgumentParser, *, epochs=100, learning_rate=0.01) -> None:
     parser.add_argument("--epochs", type=int, default=epochs)
     parser.add_argument("--learning-rate", type=float, default=learning_rate)
 

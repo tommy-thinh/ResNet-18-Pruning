@@ -1,0 +1,32 @@
+{
+  "method": "benchmark",
+  "checkpoint": "models/dense/model.keras",
+  "checkpoint_sha256": "14faeba1554c438d02c0846ea0166c8d7807ad7e1b9c9c2b54ff8cc19f90ebba",
+  "seed": 42,
+  "runtime": {
+    "framework": "TensorFlow 2.20.0",
+    "device": "/GPU:0",
+    "hardware": "NVIDIA A30",
+    "precision": "float32",
+    "batch_size": 16
+  },
+  "metrics": {
+    "binary_accuracy": 0.9759197235107422,
+    "exact_match_accuracy": 0.8162999749183655,
+    "loss": 0.12740281224250793,
+    "precision": 0.979231059551239,
+    "recall": 0.9743742346763611,
+    "parameters": 11253066,
+    "macs": 148112640,
+    "eligible_weights": 11232448,
+    "sparsity": 0.0,
+    "model_mb": 43.165669441223145,
+    "latency": {
+      "median_ms": 7.2350845,
+      "p95_ms": 7.6704928,
+      "images_per_second": 2322.994389945318
+    },
+    "peak_memory_mb": 72.10205078125
+  },
+  "status": "completed"
+}

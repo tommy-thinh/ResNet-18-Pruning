@@ -20,7 +20,7 @@ def normalize_device(device: str | int) -> str:
 @dataclass(frozen=True)
 class TrainingConfig:
     epochs: int = 200
-    batch_size: int = 16
+    batch_size: int = 64
     learning_rate: float = 0.1
     momentum: float = 0.9
     weight_decay: float = 0.005
@@ -47,7 +47,7 @@ class TrainingConfig:
 
 @dataclass(frozen=True)
 class BenchmarkConfig:
-    batch_size: int = 16
+    batch_size: int = 64
     warmup: int = 10
     repeats: int = 50
     device: str | int = "/GPU:0"
