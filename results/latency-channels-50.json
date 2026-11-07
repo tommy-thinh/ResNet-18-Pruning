@@ -1,0 +1,144 @@
+{
+  "method": "tensorrt-model",
+  "onnx": "models/latency-channels-50/model.onnx",
+  "engine": "models/latency-channels-50/model.engine",
+  "runtime": {
+    "framework": "TensorRT 10.13.3.9",
+    "device": "/GPU:0",
+    "hardware": "NVIDIA A30",
+    "precision": "fp16-enabled",
+    "batch_size": 64,
+    "cuda_graph": true,
+    "warmup": 200,
+    "repeats": 5000
+  },
+  "metrics": {
+    "binary_accuracy": 0.9693898558616638,
+    "precision": 0.9732614159584045,
+    "recall": 0.9677419066429138,
+    "exact_match_accuracy": 0.7722,
+    "loss": 0.18506405839920043,
+    "gpu_latency": {
+      "median_ms": 0.2457599937915802,
+      "p95_ms": 0.2467840015888214,
+      "images_per_second": 260801.56924739596
+    },
+    "host_latency": {
+      "median_ms": 0.98011,
+      "p95_ms": 1.0026164999999998,
+      "images_per_second": 65018.27407674842
+    },
+    "layer_profile": [
+      {
+        "name": "multi_label_resnet18_1/bn_conv1_1/batchnorm/mul_1__6",
+        "mean_ms": 0.022435840032994748
+      },
+      {
+        "name": "Reformatting CopyNode for Input Tensor 0 to Conv__90 + multi_label_resnet18_1/conv1_relu_1/Relu",
+        "mean_ms": 0.02203647969290614
+      },
+      {
+        "name": "Conv__90 + multi_label_resnet18_1/conv1_relu_1/Relu",
+        "mean_ms": 0.02976768057793379
+      },
+      {
+        "name": "multi_label_resnet18_1/pool1_1/MaxPool2d",
+        "mean_ms": 0.010762239918112754
+      },
+      {
+        "name": "Conv__96 + multi_label_resnet18_1/conv2_block1_relu1_1/Relu",
+        "mean_ms": 0.015503359688445927
+      },
+      {
+        "name": "Conv__98 + multi_label_resnet18_1/conv2_block1_add_1/Add + multi_label_resnet18_1/conv2_block1_out_relu_1/Relu",
+        "mean_ms": 0.015636479705572127
+      },
+      {
+        "name": "Conv__104 + multi_label_resnet18_1/conv2_block2_relu1_1/Relu",
+        "mean_ms": 0.015155199756845832
+      },
+      {
+        "name": "Conv__106 + multi_label_resnet18_1/conv2_block2_add_1/Add + multi_label_resnet18_1/conv2_block2_out_relu_1/Relu",
+        "mean_ms": 0.01528831971809268
+      },
+      {
+        "name": "Conv__126 + multi_label_resnet18_1/conv3_block1_relu1_1/Relu",
+        "mean_ms": 0.011745280250906945
+      },
+      {
+        "name": "Conv__128",
+        "mean_ms": 0.013998080072924494
+      },
+      {
+        "name": "Conv__116 + multi_label_resnet18_1/conv3_block1_add_1/Add + multi_label_resnet18_1/conv3_block1_out_relu_1/Relu",
+        "mean_ms": 0.008949760235846043
+      },
+      {
+        "name": "Conv__130 + multi_label_resnet18_1/conv3_block2_relu1_1/Relu",
+        "mean_ms": 0.013998080072924494
+      },
+      {
+        "name": "Conv__132 + multi_label_resnet18_1/conv3_block2_add_1/Add + multi_label_resnet18_1/conv3_block2_out_relu_1/Relu",
+        "mean_ms": 0.013742079995572566
+      },
+      {
+        "name": "Conv__152 + multi_label_resnet18_1/conv4_block1_relu1_1/Relu",
+        "mean_ms": 0.011950080320239066
+      },
+      {
+        "name": "Conv__154",
+        "mean_ms": 0.014254080150276422
+      },
+      {
+        "name": "Conv__142 + multi_label_resnet18_1/conv4_block1_add_1/Add + multi_label_resnet18_1/conv4_block1_out_relu_1/Relu",
+        "mean_ms": 0.009052160261198879
+      },
+      {
+        "name": "Conv__156 + multi_label_resnet18_1/conv4_block2_relu1_1/Relu",
+        "mean_ms": 0.013967360071837902
+      },
+      {
+        "name": "Conv__158 + multi_label_resnet18_1/conv4_block2_add_1/Add + multi_label_resnet18_1/conv4_block2_out_relu_1/Relu",
+        "mean_ms": 0.01381376001983881
+      },
+      {
+        "name": "Conv__178 + multi_label_resnet18_1/conv5_block1_relu1_1/Relu",
+        "mean_ms": 0.012380160382017493
+      },
+      {
+        "name": "Conv__180",
+        "mean_ms": 0.016998400166630744
+      },
+      {
+        "name": "Conv__168 + multi_label_resnet18_1/conv5_block1_add_1/Add + multi_label_resnet18_1/conv5_block1_out_relu_1/Relu",
+        "mean_ms": 0.0087552001606673
+      },
+      {
+        "name": "Conv__182 + multi_label_resnet18_1/conv5_block2_relu1_1/Relu",
+        "mean_ms": 0.01680384010076523
+      },
+      {
+        "name": "Conv__184 + multi_label_resnet18_1/conv5_block2_add_1/Add + multi_label_resnet18_1/conv5_block2_out_relu_1/Relu",
+        "mean_ms": 0.01754112035036087
+      },
+      {
+        "name": "multi_label_resnet18_1/avg_pool_1/Mean",
+        "mean_ms": 0.005980160133913159
+      },
+      {
+        "name": "multi_label_resnet18_1/fc1_1/MatMul_myl24_0",
+        "mean_ms": 0.008038400043733417
+      },
+      {
+        "name": "multi_label_resnet18_1/predictions_1/MatMul_myl24_1",
+        "mean_ms": 0.008355840044096112
+      },
+      {
+        "name": "__myl_SigmCast_myl24_2",
+        "mean_ms": 0.004823039905168116
+      }
+    ]
+  },
+  "checkpoint": "models/channels-50/model.keras",
+  "status": "completed"
+}
