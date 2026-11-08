@@ -4,6 +4,9 @@ Each experiment has its own Python script. Each command saves one JSON to the `-
 path and checkpoints to `--model-dir`. The default checkpoint directory is
 `models/<output filename without .json>`. No suite, run registry or experiment IDs.
 
+For measured results, figures and interpretation of all completed experiments,
+see the [root README](../README.md). This file remains the command reference.
+
 ## Setup
 
 Run from the repository root, using Python 3.11:
@@ -133,8 +136,8 @@ python scripts/prune_unstructured.py --checkpoint models/dense/model.keras --den
 python scripts/prune_2to4.py --checkpoint models/dense/model.keras --batch-size 64 --device 0 --output results/semi24.json
 
 # Compact channel-pruned models.
-python scripts/prune_channels.py --checkpoint models/dense/model.keras --remove 0.2 --batch-size 64 --device 0 --output results/channels-20.json
-python scripts/prune_channels.py --checkpoint models/dense/model.keras --remove 0.4 --batch-size 64 --device 0 --output results/channels-40.json
+python scripts/prune_channels.py --checkpoint models/dense/model.keras --remove 0.25 --batch-size 64 --device 0 --output results/channels-25.json
+python scripts/prune_channels.py --checkpoint models/dense/model.keras --remove 0.5 --batch-size 64 --device 0 --output results/channels-50.json
 ```
 
 Each command loads the supplied dense checkpoint independently, records immediate
@@ -302,3 +305,15 @@ Each script owns its argument parser and experiment implementation:
 `requirements.txt` in this directory adds only optional inference dependencies.
 Keep this README as the single command reference when adding or changing experiments.
 Commit measured JSON files under root `results/`; data and model binaries remain ignored.
+
+## Regenerate the result figures locally
+
+```bash
+python scripts/plot_results.py
+```
+
+Uses only the existing NumPy/Matplotlib dependencies and committed result JSONs;
+no dataset, checkpoint, GPU or TensorRT installation is needed. The five figures
+are saved under `scripts/figures/` as PNG, SVG and PDF. PNG/SVG are commit-able;
+PDFs remain ignored. This updates figures, not the root README's manually reviewed
+tables or interpretation. Keep the JSONs as the numerical source of truth.
