@@ -1,4 +1,5 @@
 """Regenerate the README's measured-data figures without loading models or GPUs."""
+import csv
 import json
 from pathlib import Path
 
@@ -10,7 +11,7 @@ import numpy as np
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FIGURES = ROOT / "scripts" / "figures"
+FIGURES = ROOT / "figures"
 UNSTRUCTURED = ("75", "50", "25", "12_5", "6_25")
 COLORS = {
     "dense": "#555555", "unstructured": "#0072B2", "semi24": "#E69F00",
@@ -19,8 +20,13 @@ COLORS = {
 
 
 def load(name: str) -> dict:
-    path = ROOT / "results" / f"{name}.json"
-    data = json.loads(path.read_text(encoding="utf-8"))
+    if name in ("baseline", "lth-round4"):
+        path = ROOT / "results" / f"{name}.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+    else:
+        bundle = "benchmarks" if name.startswith(("latency-", "tensorrt-")) else "pruning"
+        path = ROOT / "results" / f"{bundle}.json"
+        data = json.loads(path.read_text(encoding="utf-8"))[name]
     if data.get("status") != "completed":
         raise ValueError(f"Cannot plot an incomplete result: {path}")
     return data
@@ -35,10 +41,10 @@ def matched_runtime(reference: dict, candidate: dict) -> None:
 
 def save(fig, name: str) -> None:
     FIGURES.mkdir(parents=True, exist_ok=True)
-    for suffix in ("png", "svg", "pdf"):
+    for suffix in ("png", "svg"):
         fig.savefig(FIGURES / f"{name}.{suffix}", dpi=300, bbox_inches="tight")
     plt.close(fig)
-    print(f"Generated scripts/figures/{name}.{{png,svg,pdf}}")
+    print(f"Generated figures/{name}.{{png,svg}}")
 
 
 def pruning_accuracy(baseline, unstructured, semi24, channels, deployment):
@@ -75,33 +81,8 @@ def pruning_accuracy(baseline, unstructured, semi24, channels, deployment):
     save(fig, "pruning_accuracy")
 
 
-def deployment_latency(deployment):
-    fig, axes = plt.subplots(1, 2, figsize=(10, 5.5), layout="constrained")
-    y = np.arange(len(deployment))
-    for ax, field, title in zip(axes, ("gpu_latency", "host_latency"),
-                                ("(a) Resident GPU execution (CUDA graph)",
-                                 "(b) Host input/output (no CUDA graph)")):
-        median = np.array([metrics[field]["median_ms"] for _, metrics, _ in deployment])
-        p95 = np.array([metrics[field]["p95_ms"] for _, metrics, _ in deployment])
-        ax.barh(y, median, color=[COLORS[group] for _, _, group in deployment], height=.6)
-        ax.errorbar(median, y, xerr=np.array([np.zeros(len(y)), p95 - median]),
-                    fmt="none", color="#222222", capsize=3, linewidth=1)
-        for index, value in enumerate(median):
-            ax.text(p95[index] + max(p95) * .025, index,
-                    f"{value:.4f}  ({median[0] / value:.2f}x)", va="center", fontsize=8)
-        ax.set(yticks=y, yticklabels=[label for label, _, _ in deployment],
-               xlabel="Latency (ms / batch; lower is better)", title=title,
-               xlim=(0, max(p95) * 1.48))
-        ax.invert_yaxis()
-        ax.grid(axis="y", visible=False)
-    fig.suptitle("A30 / TensorRT 10.13.3.9 / FP16-enabled / batch 64\n"
-                 "Bars: median; whisker ends: p95 (not confidence intervals); labels: median and dense-relative speedup",
-                 fontsize=11)
-    save(fig, "deployment_latency")
-
-
 def efficiency_tradeoffs(baseline, unstructured, semi24, channels, lth, deployment):
-    fig, axes = plt.subplots(2, 2, figsize=(10, 7.5), layout="constrained")
+    fig, axes = plt.subplots(1, 2, figsize=(10, 4.2), layout="constrained")
     groups = [
         ("Dense", [baseline], "dense", "X"),
         ("Unstructured (all densities)", [r["after"] for r in unstructured], "unstructured", "o"),
@@ -110,29 +91,27 @@ def efficiency_tradeoffs(baseline, unstructured, semi24, channels, lth, deployme
         ("LTH original", [lth["original"]], "original", "^"),
         ("LTH random", [lth["random"]], "random", "v"),
     ]
-    for ax, field, scale, title in zip(axes.flat, ("parameters", "macs", "model_mb"),
-                                      (1e6, 1e6, 1),
-                                      ("Parameters (millions)", "Conv/Dense MACs (millions / image)",
-                                       "Inference .keras checkpoint (MiB)")):
-        for label, records, group, marker in groups:
-            ax.scatter([r[field] / scale for r in records],
-                       [100 * r["exact_match_accuracy"] for r in records],
-                       label=label, color=COLORS[group], marker=marker, s=55, alpha=.85)
-        ax.set(xlabel=title, ylabel="TF FP32 test exact match (%)", ylim=(76, 84), xlim=(0, None))
-        for record, label in zip(channels, ("25%", "50%")):
-            m = record["after"]
-            ax.annotate(label, (m[field] / scale, 100 * m["exact_match_accuracy"]),
-                        xytext=(5, 7), textcoords="offset points", fontsize=8)
-    ax = axes[1, 1]
+    for label, records, group, marker in groups:
+        axes[0].scatter([r["parameters"] / 1e6 for r in records],
+                        [100 * r["exact_match_accuracy"] for r in records],
+                        label=label, color=COLORS[group], marker=marker, s=55, alpha=.85)
+    axes[0].set(xlabel="Allocated parameters (millions)", ylabel="TF FP32 test exact match (%)",
+                ylim=(76, 84), xlim=(0, None))
+    for record, label in zip(channels, ("25%", "50%")):
+        m = record["after"]
+        axes[0].annotate(label, (m["parameters"] / 1e6, 100 * m["exact_match_accuracy"]),
+                         xytext=(5, 7), textcoords="offset points", fontsize=8)
+    ax = axes[1]
     markers = {"dense": "X", "unstructured": "o", "semi24": "s", "channels": "D"}
     for label, metrics, group in deployment:
         point = (metrics["gpu_latency"]["median_ms"], 100 * metrics["exact_match_accuracy"])
         ax.scatter(*point, color=COLORS[group], marker=markers[group], s=55, alpha=.85)
         if group in ("dense", "channels"):
-            ax.annotate(label, point, xytext=(5, 7), textcoords="offset points", fontsize=8)
+            ax.annotate(label, point, xytext=(5, -13) if group == "dense" else (5, 7),
+                        textcoords="offset points", fontsize=8)
     ax.set(xlabel="Median GPU latency (ms / batch 64)", ylabel="TRT FP16-enabled test exact match (%)",
            ylim=(76, 84), xlim=(.21, .54))
-    handles, labels = axes[0, 0].get_legend_handles_labels()
+    handles, labels = axes[0].get_legend_handles_labels()
     fig.legend(handles, labels, loc="outside lower center", ncol=3, fontsize=9)
     fig.suptitle("Accuracy-efficiency trade-offs: left is cheaper, up is more accurate\n"
                  "TensorFlow accuracy for model resources; TensorRT accuracy for deployment latency; one training seed",
@@ -206,6 +185,41 @@ def lottery_ticket(lth):
     save(fig, "lottery_ticket")
 
 
+def write_summary():
+    rows = []
+
+    def add(name, runtime, metrics):
+        rows.append({
+            "experiment": name, "runtime": runtime["framework"], "batch_size": runtime["batch_size"],
+            "exact_match_pct": round(metrics["exact_match_accuracy"] * 100, 4),
+            "sparsity_pct": round(metrics["sparsity"] * 100, 4) if "sparsity" in metrics else "",
+            "parameters": metrics.get("parameters", ""), "macs": metrics.get("macs", ""),
+            "gpu_median_ms": metrics.get("gpu_latency", {}).get("median_ms", ""),
+            "host_median_ms": metrics.get("host_latency", {}).get("median_ms", ""),
+        })
+
+    baseline = load("baseline")
+    add("dense", baseline["runtime"], baseline["metrics"])
+    for name, result in json.loads((ROOT / "results/pruning.json").read_text()).items():
+        add(name, result["runtime"], result["after"])
+    lth = load("lth-round4")
+    for variant in ("original", "random"):
+        add(f"lth-{variant}", lth["runtime"], lth[variant])
+    for name, result in json.loads((ROOT / "results/benchmarks.json").read_text()).items():
+        if name == "tensorrt-a30":
+            continue  # Historical host-only protocol; not the matched GPU benchmark.
+        if "metrics" in result:
+            add(name, result["runtime"], result["metrics"])
+        else:
+            for variant in ("dense", "sparse_dense_tactics", "sparse"):
+                add(f"{name}/{variant}", result["runtime"], result[variant])
+    with (ROOT / "results/summary.csv").open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    print(f"Generated results/summary.csv ({len(rows)} measured comparisons)")
+
+
 def main():
     plt.rcParams.update({
         "font.family": "sans-serif", "font.sans-serif": ["DejaVu Sans"],
@@ -244,10 +258,10 @@ def main():
         if not np.isclose(r["density"], (1 - lth["prune_rate"]) ** r["round"], atol=1e-6):
             raise ValueError("LTH density does not match iterative pruning schedule")
     pruning_accuracy(baseline, unstructured, semi24, channels, deployment)
-    deployment_latency(deployment)
     efficiency_tradeoffs(baseline, unstructured, semi24, channels, lth, deployment)
     sparse_tactics()
     lottery_ticket(lth)
+    write_summary()
 
 
 if __name__ == "__main__":

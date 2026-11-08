@@ -58,7 +58,6 @@ def validate_masks(weights: dict[str, np.ndarray], masks: dict[str, np.ndarray])
 
 def mask_2of4(weight: np.ndarray) -> np.ndarray:
     # Keras Conv: [R,S,C,K] => group C, Dense: [C,K] => group C.
-    # https://docs.nvidia.com/deeplearning/tensorrt/10.x.x/inference-library/io-formats-sparsity.html
     axis = 2 if weight.ndim == 4 else 0 if weight.ndim == 2 else None
     if axis is None or weight.shape[axis] % 4:
         raise ValueError("2:4 requires a Conv2D/Dense kernel with reduction dimension divisible by four.")

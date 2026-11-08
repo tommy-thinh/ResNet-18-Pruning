@@ -27,7 +27,6 @@ def main() -> None:
     from scripts.pruning.tensorrt_runtime import select_cuda_device
 
     # TensorFlow visibility does not select the CUDA device used by TensorRT.
-    # https://docs.nvidia.com/cuda/cuda-runtime-api/group__CUDART__DEVICE.html
     select_cuda_device(args.device)
     result = tensorrt_comparison(args.dense_onnx, args.sparse_onnx, args.data_dir / "test.pt", args.model_dir, bench,
                                 cuda_graph=args.cuda_graph, profile=args.profile)

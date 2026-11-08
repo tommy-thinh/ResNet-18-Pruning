@@ -1,0 +1,5 @@
+# Optional ONNX export and A30 inference; install after environment.yml.
+tf2onnx==1.17.0
+onnxruntime>=1.20,<2
+polygraphy==0.53.6
+tensorrt-cu12==10.13.3.9; platform_system == "Linux"

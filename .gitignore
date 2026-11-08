@@ -13,3 +13,7 @@ tmp/
 pytest-of-*/
 __autograph_generated_file*.py
 /tmp????????
+.cache/
+.conda/
+.env
+figures/*.pdf

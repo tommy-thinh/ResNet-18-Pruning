@@ -42,7 +42,6 @@ def _gpu_samples(runner, config, cuda_graph: bool) -> list[float]:
         if cuda_graph:
             graph, executable = ct.c_void_p(), ct.c_void_p()
             # Flush shape/buffer updates before capture; pointers stay alive until replay ends.
-            # https://docs.nvidia.com/deeplearning/tensorrt/10.x.x/performance/optimization.html#cuda-graphs
             launch()
             runner.stream.synchronize()
             _call(runtime, "cudaStreamBeginCapture", stream, ct.c_int(1))
@@ -63,7 +62,6 @@ def _gpu_samples(runner, config, cuda_graph: bool) -> list[float]:
         runner.stream.synchronize()
         samples = []
         # Every sample is GPU timestamped, not a Python wall-clock interval.
-        # https://docs.nvidia.com/cuda/archive/12.5.0/cuda-runtime-api/group__CUDART__EVENT.html
         for _ in range(config.repeats):
             elapsed = ct.c_float()
             _call(runtime, "cudaEventRecord", start, stream)

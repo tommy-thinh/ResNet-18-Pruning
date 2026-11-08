@@ -66,10 +66,8 @@ def train(model: keras.Model, train_data: tuple, val_data: tuple, config: Traini
 
     start = time.perf_counter()
     # Scope variable/optimizer creation and both train/validation steps together.
-    # https://www.tensorflow.org/guide/gpu#manual_device_placement
     with tf.device(config.device):
         # Clone an uncompiled graph, not a previous evaluation's compile config.
-        # https://keras.io/api/models/model/
         architecture = keras.Model(model.input, model.output, name=model.name)
         fresh = keras.models.clone_model(architecture, clone_function=clone_layer)
         fresh.set_weights(model.get_weights())

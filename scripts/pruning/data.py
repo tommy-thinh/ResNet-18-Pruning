@@ -34,7 +34,6 @@ class Batches(keras.utils.PyDataset):
     """Shuffle small indices, not a buffer containing the full expanded dataset."""
 
     def __init__(self, images, labels, batch_size: int, *, shuffle: bool = False, seed: int = 42):
-        # https://keras.io/api/utils/preprocessing_utils/#pydataset-class
         super().__init__(workers=2, max_queue_size=2)
         if batch_size < 1 or len(images) != len(labels) or len(images) == 0:
             raise ValueError("Use nonempty matching arrays and a positive batch size.")

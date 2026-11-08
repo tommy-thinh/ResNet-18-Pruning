@@ -1,0 +1,25 @@
+experiment,runtime,batch_size,exact_match_pct,sparsity_pct,parameters,macs,gpu_median_ms,host_median_ms
+dense,TensorFlow 2.20.0,64,81.63,0.0,11253066,148112640,,
+unstructured-75,TensorFlow 2.20.0,64,81.84,25.0,11253066,148112640,,
+unstructured-50,TensorFlow 2.20.0,64,81.76,50.0,11253066,148112640,,
+unstructured-25,TensorFlow 2.20.0,64,82.04,75.0,11253066,148112640,,
+unstructured-12_5,TensorFlow 2.20.0,64,81.64,87.5,11253066,148112640,,
+unstructured-6_25,TensorFlow 2.20.0,64,82.2,93.75,11253066,148112640,,
+semi24,TensorFlow 2.20.0,64,82.09,50.0,11253066,148112640,,
+channels-25,TensorFlow 2.20.0,64,80.46,0.0,6348122,85132544,,
+channels-50,TensorFlow 2.20.0,64,77.22,0.0,2837866,39453952,,
+lth-original,TensorFlow 2.20.0,64,81.99,59.04,11253066,148112640,,
+lth-random,TensorFlow 2.20.0,64,81.5,59.04,11253066,148112640,,
+latency-dense,TensorRT 10.13.3.9,64,81.66,,,,0.45772799849510193,1.1844495
+latency-unstructured-75,TensorRT 10.13.3.9,64,81.87,,,,0.45875200629234314,1.199867
+latency-unstructured-50,TensorRT 10.13.3.9,64,81.79,,,,0.45772799849510193,1.196652
+latency-unstructured-25,TensorRT 10.13.3.9,64,82.05,,,,0.4556800127029419,1.22606
+latency-unstructured-12_5,TensorRT 10.13.3.9,64,81.61,,,,0.4556800127029419,1.2018175
+latency-unstructured-6_25,TensorRT 10.13.3.9,64,82.17,,,,0.4556800127029419,1.211856
+latency-channels-25,TensorRT 10.13.3.9,64,80.47,,,,0.3768320083618164,1.1174895
+latency-channels-50,TensorRT 10.13.3.9,64,77.22,,,,0.2457599937915802,0.98011
+latency-semi24-dense,TensorRT 10.13.3.9,64,82.05,,,,0.45875200629234314,1.2158155
+latency-semi24-sparse,TensorRT 10.13.3.9,64,82.08,,,,0.4546560049057007,1.189133
+latency-semi24-batch256/dense,TensorRT 10.13.3.9,256,81.63,,,,1.2216320037841797,2.5266325
+latency-semi24-batch256/sparse_dense_tactics,TensorRT 10.13.3.9,256,82.1,,,,1.2206079959869385,2.5724895
+latency-semi24-batch256/sparse,TensorRT 10.13.3.9,256,82.09,,,,1.1141120195388794,2.469255

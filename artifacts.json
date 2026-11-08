@@ -1,0 +1,94 @@
+{
+  "models": {
+    "channels-25/model.keras": {
+      "sha256": "5a0a8d34ada41723c5e7e2c5a3e6f8f74a5b3918fc34d184fd8e67d7d88dc23c",
+      "bytes": 25642672
+    },
+    "channels-50/model.keras": {
+      "sha256": "878ce07d23105e2bf6294ec995957a875f44fa738b8c146963d77731ba0cbf38",
+      "bytes": 11601648
+    },
+    "dense/initial.keras": {
+      "sha256": "59fc4e9af3e1057ed650c8beb23c9089f8e3982c7a0f41fe634bad6cee583a14",
+      "bytes": 45265038
+    },
+    "dense/model.keras": {
+      "sha256": "14faeba1554c438d02c0846ea0166c8d7807ad7e1b9c9c2b54ff8cc19f90ebba",
+      "bytes": 45262485
+    },
+    "lth-round4/random/model.keras": {
+      "sha256": "f66fa1f4da689689fca6ddcb7b8274dbf6cc00d4db8488847b75439f8729eee7",
+      "bytes": 47097622
+    },
+    "lth-round4/round-4/masks.npz": {
+      "sha256": "fa9bd6ef4140aa59396b0edd269abbbd912f5f46459acd8006d922efb32a0707",
+      "bytes": 1037770
+    },
+    "lth-round4/round-4/model.keras": {
+      "sha256": "d3cddbee24e9e993aea534494e4a98f3b2b82853c42f4e9adfc64c08d1ffc8b5",
+      "bytes": 47097622
+    },
+    "semi24/masks.npz": {
+      "sha256": "f44d615342e948d742ecd725b267bad94a1e233cefe99cb535d8f2bc941dfda9",
+      "bytes": 1415353
+    },
+    "semi24/model.keras": {
+      "sha256": "74fda344a9c89a915fcab3c1304c890686085bbe5c9dd3d4dc0669061bb212d1",
+      "bytes": 47136125
+    },
+    "unstructured-12_5/masks.npz": {
+      "sha256": "132a4ade587ae3ff6a0993fc61da3fd54fd31db4337673b6d3460d7eb010d822",
+      "bytes": 660566
+    },
+    "unstructured-12_5/model.keras": {
+      "sha256": "032ea43e5df4ee77ee136c85dccccc71f4ec6f06d2dae12a8051a7eadfab1fb4",
+      "bytes": 47137847
+    },
+    "unstructured-25/masks.npz": {
+      "sha256": "640e57970b55a8237f548340466fe2156caa04dcf660a0b00daf52b86d9defa9",
+      "bytes": 919985
+    },
+    "unstructured-25/model.keras": {
+      "sha256": "ada999b1a51d801917a2408ced9669f65482639b368f56453d91389a04fbd090",
+      "bytes": 47137847
+    },
+    "unstructured-50/masks.npz": {
+      "sha256": "87f6bb2e140dae4dc3eecacb8059956c87117db102a81da4d1848a711aae948f",
+      "bytes": 658340
+    },
+    "unstructured-50/model.keras": {
+      "sha256": "27bbfae66163fbfea276c68440fe432e0c97852506250ed1e5085b62c911587b",
+      "bytes": 47137847
+    },
+    "unstructured-6_25/masks.npz": {
+      "sha256": "d77bdd6ec1a42cf9604e1a1fc92d1cf2e60fc4953c91f3a60cc086d1c27fe415",
+      "bytes": 377621
+    },
+    "unstructured-6_25/model.keras": {
+      "sha256": "546a8001b8c1405a81dbd046c405182eac59e29a4cfc139894c52522a6960a00",
+      "bytes": 47137847
+    },
+    "unstructured-75/masks.npz": {
+      "sha256": "50569831754039a81f238d5673f247d1e846ac4c0caefa6fc5a87ea86407c9a7",
+      "bytes": 790832
+    },
+    "unstructured-75/model.keras": {
+      "sha256": "01de79f1c94a4b076e892425779b429bee15ecf1556255a4ef37ce870de63930",
+      "bytes": 47137847
+    }
+  },
+  "data": {
+    "test.pt": {
+      "sha256": "c7ee33e4873c872c65f94bab25bff831c0364dd412b3732dda3ccdf4917d2129",
+      "bytes": 44243562
+    },
+    "train.pt": {
+      "sha256": "ae971f0c1a84db362a061323bc3dedf172f6f45c39297d0f96cfd8b214fd5636",
+      "bytes": 221203575
+    },
+    "val.pt": {
+      "sha256": "14475f85d1667d6eb98234838d8de8b3e39147a44c2980ff2ed02762d913142e",
+      "bytes": 44243549
+    }
+  }
+}

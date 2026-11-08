@@ -1,4 +1,4 @@
-"""Benchmark one trained dense, unstructured or channel-pruned model with TensorRT FP16."""
+"""Benchmark a checkpoint, ONNX export or existing TensorRT FP16 engine."""
 import argparse
 import os
 from pathlib import Path
@@ -19,6 +19,7 @@ def parser():
     source = command.add_mutually_exclusive_group(required=True)
     source.add_argument("--checkpoint", type=Path, help="Export this trained .keras checkpoint first")
     source.add_argument("--onnx", type=Path, help="Reuse an existing ONNX export")
+    source.add_argument("--engine", type=Path, help="Remeasure an existing engine without rebuilding")
     return command
 
 
@@ -27,10 +28,16 @@ def main():
     if args.device == "/CPU:0":
         raise ValueError("TensorRT requires a GPU device.")
     bench = prepare(args)
-    from scripts.pruning.inference import benchmark_onnx
+    from scripts.pruning.inference import benchmark_onnx, benchmark_saved_engine
     from scripts.pruning.tensorrt_runtime import select_cuda_device
 
     source = args.onnx
+    if args.engine:
+        select_cuda_device(args.device)
+        result = benchmark_saved_engine(args.engine, args.data_dir / "test.pt", bench,
+                                        cuda_graph=args.cuda_graph, profile=args.profile)
+        save_result(args, result)
+        return
     if args.checkpoint:
         source = args.model_dir / "model.onnx"
         # tf2onnx creates separate TF1 sessions; isolate offline export from all GPUs.

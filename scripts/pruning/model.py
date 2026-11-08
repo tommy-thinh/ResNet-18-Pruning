@@ -72,14 +72,12 @@ def build_resnet18_model(
 
 def compile_model(model: keras.Model, config=None) -> None:
     """Configure evaluation, or training when an explicit training config is supplied."""
-    # Evaluation needs loss/metrics, not a training optimizer or training defaults.
-    # https://github.com/keras-team/keras/blob/v3.12.0/keras/src/trainers/trainer.py
+    # Evaluation must not create optimizer state or inherit training defaults.
     optimizer = None
     if config is not None:
         from .masks import MaskedSGD, model_masks
 
         # EMA is finalized by fit(); always reload the best epoch afterward.
-        # https://keras.io/api/optimizers/sgd/
         optimizer_class = MaskedSGD if model_masks(model) else keras.optimizers.SGD
         optimizer = optimizer_class(
             learning_rate=config.learning_rate,

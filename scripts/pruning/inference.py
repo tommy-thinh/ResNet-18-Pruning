@@ -49,8 +49,6 @@ def export_onnx(checkpoint: Path, destination: Path, test_path: Path) -> dict:
     from .model import load_model
 
     model = load_model(checkpoint)
-    # Keras' official ONNX export API uses tf2onnx with the TensorFlow backend.
-    # https://keras.io/api/models/model_saving_apis/export/
     model.export(str(destination), format="onnx", opset_version=17,
                  input_signature=[tf.TensorSpec((None, 64, 64, 3), tf.float32, name="images")])
     onnx.checker.check_model(str(destination))
