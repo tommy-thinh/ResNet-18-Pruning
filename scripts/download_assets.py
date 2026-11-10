@@ -8,6 +8,7 @@ import tempfile
 
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_REPO = "fucthin/ResNet-18-Pruning-Datasets-and-Models"
 
 
 def checksum(path: Path) -> str:
@@ -51,18 +52,13 @@ def download(repo_id: str, repo_type: str, revision: str, destination: Path, fil
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--model-repo", help="Hugging Face model repository: owner/name")
-    parser.add_argument("--dataset-repo", help="Hugging Face dataset repository: owner/name")
-    parser.add_argument("--model-revision", default="main", help="Commit hash or branch")
-    parser.add_argument("--dataset-revision", default="main", help="Commit hash or branch")
+    parser.add_argument("--repo", default=DEFAULT_REPO, help="Hugging Face dataset repository: owner/name")
+    parser.add_argument("--revision", default="main", help="Commit hash or branch")
     args = parser.parse_args()
-    if not (args.model_repo or args.dataset_repo):
-        parser.error("Supply --model-repo and/or --dataset-repo")
     manifest = json.loads((ROOT / "artifacts.json").read_text(encoding="utf-8"))
-    if args.model_repo:
-        download(args.model_repo, "model", args.model_revision, ROOT / "models", manifest["models"])
-    if args.dataset_repo:
-        download(args.dataset_repo, "dataset", args.dataset_revision, ROOT / "data", manifest["data"])
+    files = {f"{group}/{name}": metadata
+             for group in ("models", "data") for name, metadata in manifest[group].items()}
+    download(args.repo, "dataset", args.revision, ROOT, files)
 
 
 if __name__ == "__main__":
