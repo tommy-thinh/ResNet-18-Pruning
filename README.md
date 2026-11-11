@@ -1,20 +1,21 @@
 # ResNet-18 Pruning
 
-ResNet-18 pruning experiments on multi-label MNIST: unstructured magnitude
-pruning, 2:4 sparsity, channel pruning, and Lottery Ticket Hypothesis (LTH)
-resetting. The TensorFlow/Keras model has ten sigmoid outputs and takes 64 × 64
-images. The dataset has 50,000 training, 10,000 validation and 10,000 test samples.
+Four pruning experiments on a TensorFlow/Keras ResNet-18: unstructured magnitude
+pruning, 2:4 sparsity, channel pruning, and Lottery Ticket Hypothesis (LTH). The task is multi-label digit classification on 64 × 64 MNIST images,
+with ten sigmoid outputs. The splits contain 50,000 training, 10,000 validation
+and 10,000 test samples.
 
-Each experiment has a separate script. Shared code in `scripts/pruning/` handles
-persistent masks, residual-compatible channel removal, fine-tuning, ONNX export
-and TensorRT benchmarking.
+The implementation keeps pruning masks fixed during fine-tuning and removes
+channels across residual connections. Each experiment has its own script,
+with shared code in `scripts/pruning/`. Trained checkpoints are exported through
+ONNX for TensorRT inference.
 
 ## Results
 
-Deployment measurements use TensorRT 10.13.3.9 with FP16 enabled on an A30:
-batch 64, 200 warmups and 5,000 repetitions. GPU latency uses resident buffers
-and CUDA graphs; it excludes transfers and preprocessing. Exact match counts
-samples with all ten labels correct. Parameter counts include zero weights.
+TensorRT measurements below use version 10.13.3.9 with FP16 enabled on an A30,
+batch 64, 200 warmups and 5,000 repetitions. GPU timing uses resident buffers
+and CUDA graphs, excluding transfers and preprocessing. Exact match requires
+all ten labels to be correct. Parameter counts include zero weights.
 
 | Model | Test exact match | Parameters (M) | GPU median (ms/batch) | GPU speedup |
 | --- | ---: | ---: | ---: | ---: |
@@ -23,26 +24,26 @@ samples with all ten labels correct. Parameter counts include zero weights.
 | 2:4, sparse tactics enabled | 82.08% | 11.253 | 0.4547 | 1.01× |
 | Channels, 25% removed | 80.47% | 6.348 | 0.3768 | 1.21× |
 | Channels, 50% removed | 77.22% | 2.838 | 0.2458 | 1.86× |
-| LTH original initialization (TF FP32) | 81.99% | 11.253 | — | — |
-| LTH random initialization (TF FP32) | 81.50% | 11.253 | — | — |
+| LTH original initialization (TF FP32) | 81.99% | 11.253 | N/A | N/A |
+| LTH random initialization (TF FP32) | 81.50% | 11.253 | N/A | N/A |
 
-Removing 50% of channel width cuts MACs by 73.36% and costs 4.44 percentage
-points of exact-match accuracy. The GPU speedup is 1.86×, but host-input/output
-speedup is 1.21×. The latter includes transfers and runner overhead, without
-CUDA graphs. Unstructured pruning preserves accuracy without reducing dense
-computation. At batch 256, enabling sparse tactics for the same 2:4 weights
-gives 1.096× GPU speedup—not the theoretical 2×.
+Channel pruning gives the largest latency reduction. Removing 50% of channel
+width cuts MACs by 73.36% and drops exact-match accuracy by 4.44 percentage
+points. GPU inference is 1.86× faster. Host-input/output timing shows 1.21×
+speedup because it includes transfers and runner overhead, without CUDA graphs.
 
-LTH retains 40.96% of eligible convolution weights. Its TensorFlow dense
-reference scores 81.63%; original initialization beats the random control by
-0.49 points, though the random control reaches its best epoch sooner. LTH was
-not timed in TensorRT.
+Unstructured pruning keeps accuracy but barely changes latency in TensorRT.
+The zeros still run through dense kernels. For 2:4, enabling sparse tactics
+on the same weights gives 1.096× GPU speedup at batch 256, well below 2×.
 
-These are single-seed runs. There is no unpruned fine-tuning control, batch-1
-benchmark or energy measurement. [Results](results/) retain full histories,
-all five unstructured densities, before/after accuracy and same-weight
-sparse-tactic controls. [summary.csv](results/summary.csv) separates runtimes
-and batch sizes.
+LTH retains 40.96% of eligible convolution weights. Original initialization
+scores 0.49 points above the random control, which reaches its best epoch
+sooner. The TensorFlow dense reference scores 81.63%. LTH has no TensorRT timings.
+
+All runs use one seed, without an unpruned fine-tuning control.
+[results/](results/) contains training histories, all five unstructured
+densities, accuracy before and after fine-tuning, and same-weight sparse-tactic
+comparisons. [summary.csv](results/summary.csv) separates runtimes and batch sizes.
 
 ![Accuracy versus allocated parameters and measured GPU latency](figures/efficiency_tradeoffs.png)
 
@@ -50,9 +51,9 @@ and batch sizes.
 
 ## Reproduction
 
-Set up Conda on the training machine. GPU execution requires Linux/WSL2 and a
-compatible NVIDIA driver. TensorRT dependencies are optional. Use `--device cpu`
-for CPU validation; defaults are batch 64, GPU 0 and seed 42.
+Use Linux/WSL2 with a compatible NVIDIA driver for GPU runs. Install the optional
+TensorRT dependencies for export and inference benchmarks. Scripts default to
+batch 64, GPU 0 and seed 42; pass `--device cpu` for CPU validation.
 
 ```bash
 conda env create -f environment.yml
@@ -61,12 +62,11 @@ python -m pip install -r requirements-tensorrt.txt  # optional, for inference/ex
 python scripts/download_assets.py
 ```
 
-Checkpoints, pruning masks and dataset splits are hosted together on
+Checkpoints, masks and dataset splits are on
 [Hugging Face](https://huggingface.co/datasets/fucthin/ResNet-18-Pruning-Datasets-and-Models).
-The download script restores `models/` and `data/`, checks hashes against
-[artifacts.json](artifacts.json), and refuses to overwrite conflicting files.
-Use `--repo OWNER/NAME` to change the dataset repository, or `--revision COMMIT`
-to pin a version.
+The script downloads them into `models/` and `data/`, verifies
+[artifacts.json](artifacts.json) checksums and refuses conflicting local files.
+Override the source with `--repo OWNER/NAME` or pin it with `--revision COMMIT`.
 
 ```bash
 # Other retained densities: 0.75, 0.5, 0.25, 0.125; use a fresh output for each.
@@ -78,10 +78,10 @@ python scripts/lottery_ticket.py --checkpoint models/dense/model.keras --initial
 python scripts/train_baseline.py --model-dir models/dense-new --output results/baseline-new.json
 ```
 
-Fine-tuning defaults to a 100-epoch budget at LR 0.01, with early stopping and
-plateau LR reduction. Change these through CLI flags. Use a fresh output path
-for each run; existing outputs are protected. When training a new baseline,
-pass its checkpoint and matching `--baseline` JSON to the pruning scripts.
+Fine-tuning runs for up to 100 epochs at LR 0.01, with early stopping and
+plateau LR reduction. CLI flags override these settings. Each run needs a new
+output path. For a newly trained baseline, pass its checkpoint and matching
+`--baseline` JSON to the pruning scripts.
 
 ```bash
 # TensorFlow evaluation, or matched TensorRT inference for any checkpoint:
